@@ -1,4 +1,26 @@
-<!DOCTYPE html>
+// ==================== LOGIN ====================
+document.getElementById('loginForm').addEventListener('submit', function(e) {
+  e.preventDefault();
+  const username = document.getElementById('username').value;
+  const password = document.getElementById('password').value;
+  
+  // Simple login - langsung cek tanpa hash
+  if (username === 'pkmkc.sunstone@gmail.com' && password === 'pkmkcsunstone2025') {
+    const token = btoa(`${username}:${Date.now()}`);
+    localStorage.setItem('authToken', token);
+    localStorage.setItem('username', username);
+    
+    addLog('Login berhasil: ' + username);
+    document.getElementById('loginPage').classList.remove('active');
+    document.getElementById('dashboardPage').classList.add('active');
+    
+    restoreSession();
+    loadHistory();
+  } else {
+    document.getElementById('loginError').textContent = '❌ Email atau password salah!';
+    addLog('Login failed: Invalid credentials');
+  }
+});<!DOCTYPE html>
 <html lang="id">
 <head>
   <meta charset="UTF-8" />
@@ -231,7 +253,7 @@ const CONFIG = {
   sensorTimeout: 10000,
   users: {
     'pkmkc.sunstone@gmail.com': {
-      passwordHash: 'a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3', // pkmkcsunstone2025
+      passwordHash: '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92', // pkmkcsunstone2025
       name: 'Admin SUNSTONE'
     }
   }
@@ -407,37 +429,7 @@ async function predictWithONNX(sensorData) {
   }
 }
 
-// ==================== LOGIN ====================
-document.getElementById('loginForm').addEventListener('submit', async function(e) {
-  e.preventDefault();
-  const username = document.getElementById('username').value;
-  const password = document.getElementById('password').value;
-  
-  try {
-    const passwordHash = await sha256(password);
-    const user = CONFIG.users[username];
-    
-    if (!user || user.passwordHash !== passwordHash) {
-      document.getElementById('loginError').textContent = '❌ Email atau password salah!';
-      addLog('Login failed: Invalid credentials');
-      return;
-    }
-    
-    const token = btoa(`${username}:${Date.now()}`);
-    localStorage.setItem('authToken', token);
-    localStorage.setItem('username', username);
-    
-    addLog('Login berhasil: ' + username);
-    document.getElementById('loginPage').classList.remove('active');
-    document.getElementById('dashboardPage').classList.add('active');
-    
-    await restoreSession();
-    loadHistory();
-  } catch (err) {
-    document.getElementById('loginError').textContent = 'Error: ' + err.message;
-    addLog('Login error: ' + err.message);
-  }
-});
+
 
 function logout() {
   localStorage.removeItem('authToken');
