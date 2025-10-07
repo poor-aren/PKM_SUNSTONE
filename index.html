@@ -385,27 +385,24 @@ document.getElementById('loginForm').addEventListener('submit', function(e) {
   const username = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
   
-  console.log('Login attempt:', username);
+  // Hardcoded login - SIMPLE!
+  const VALID_EMAIL = 'pkmkc.sunstone@gmail.com';
+  const VALID_PASSWORD = 'pkmkcsunstone2025';
   
-  if (username === 'pkmkc.sunstone@gmail.com' && password === 'pkmkcsunstone2025') {
-    const token = btoa(username + ':' + Date.now());
-    localStorage.setItem('authToken', token);
+  if (username === VALID_EMAIL && password === VALID_PASSWORD) {
+    localStorage.setItem('authToken', 'logged_in_' + Date.now());
     localStorage.setItem('username', username);
     
-    console.log('Login SUCCESS!');
     addLog('Login berhasil: ' + username);
     
     document.getElementById('loginPage').classList.remove('active');
     document.getElementById('dashboardPage').classList.add('active');
     
-    setTimeout(function() {
-      restoreSession();
-      loadHistory();
-    }, 100);
+    restoreSession();
+    loadHistory();
   } else {
-    console.log('Login FAILED');
     document.getElementById('loginError').textContent = '❌ Email atau password salah!';
-    addLog('Login failed: Invalid credentials');
+    addLog('Login gagal');
   }
 });
 
