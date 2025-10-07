@@ -54,7 +54,7 @@
 <body>
   <div class="container">
     <!-- LOGIN PAGE -->
-    <div id="loginPage" class="page active" style="text-align:center;padding:50px">
+    <div id="loginPage" class="page" style="text-align:center;padding:50px">
       <h1 style="color:#3b4998;margin-bottom:30px;">SUNSTONE Admin Login</h1>
       <form id="loginForm" style="max-width:300px;margin:auto;">
         <input type="text" id="username" placeholder="Email" required style="padding:10px;width:100%;margin-bottom:15px;border:2px solid #ccc;border-radius:6px;">
@@ -65,7 +65,7 @@
     </div>
 
     <!-- DASHBOARD PAGE -->
-    <div id="dashboardPage" class="page">
+    <div id="dashboardPage" class="page active">
       <div class="dashboard-header">
         <h1 class="dashboard-title">DASHBOARD</h1>
         <div class="nav-links">
@@ -890,14 +890,15 @@ window.addEventListener('load', async function() {
   try {
     await initDB();
     await loadONNXModel();
-    const authToken = localStorage.getItem('authToken');
-    if (authToken) {
-      document.getElementById('loginPage').classList.remove('active');
-      document.getElementById('dashboardPage').classList.add('active');
-      addLog('Auto-login from token');
-      await restoreSession();
-      loadHistory();
-    }
+    
+    // LANGSUNG MASUK DASHBOARD - SKIP LOGIN!
+    localStorage.setItem('authToken', 'auto_logged_in');
+    localStorage.setItem('username', 'admin');
+    addLog('Auto-login: SKIP LOGIN MODE');
+    
+    await restoreSession();
+    loadHistory();
+    
     addLog('✅ SUNSTONE System Ready');
   } catch (err) {
     addLog('❌ Initialization error: ' + err.message);
