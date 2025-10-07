@@ -380,29 +380,32 @@ async function predictWithONNX(sensorData) {
   }
 }
 
-document.getElementById('loginForm').addEventListener('submit', async function(e) {
+document.getElementById('loginForm').addEventListener('submit', function(e) {
   e.preventDefault();
-  const username = document.getElementById('username').value;
+  const username = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
-  try {
-    const passwordHash = await sha256(password);
-    const user = CONFIG.users[username];
-    if (!user || user.passwordHash !== passwordHash) {
-      document.getElementById('loginError').textContent = '❌ Email atau password salah!';
-      addLog('Login failed: Invalid credentials');
-      return;
-    }
-    const token = btoa(`${username}:${Date.now()}`);
+  
+  console.log('Login attempt:', username);
+  
+  if (username === 'pkmkc.sunstone@gmail.com' && password === 'pkmkcsunstone2025') {
+    const token = btoa(username + ':' + Date.now());
     localStorage.setItem('authToken', token);
     localStorage.setItem('username', username);
+    
+    console.log('Login SUCCESS!');
     addLog('Login berhasil: ' + username);
+    
     document.getElementById('loginPage').classList.remove('active');
     document.getElementById('dashboardPage').classList.add('active');
-    await restoreSession();
-    loadHistory();
-  } catch (err) {
-    document.getElementById('loginError').textContent = 'Error: ' + err.message;
-    addLog('Login error: ' + err.message);
+    
+    setTimeout(function() {
+      restoreSession();
+      loadHistory();
+    }, 100);
+  } else {
+    console.log('Login FAILED');
+    document.getElementById('loginError').textContent = '❌ Email atau password salah!';
+    addLog('Login failed: Invalid credentials');
   }
 });
 
