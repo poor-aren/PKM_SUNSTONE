@@ -1,26 +1,4 @@
-// ==================== LOGIN ====================
-document.getElementById('loginForm').addEventListener('submit', function(e) {
-  e.preventDefault();
-  const username = document.getElementById('username').value;
-  const password = document.getElementById('password').value;
-  
-  // Simple login - langsung cek tanpa hash
-  if (username === 'pkmkc.sunstone@gmail.com' && password === 'pkmkcsunstone2025') {
-    const token = btoa(`${username}:${Date.now()}`);
-    localStorage.setItem('authToken', token);
-    localStorage.setItem('username', username);
-    
-    addLog('Login berhasil: ' + username);
-    document.getElementById('loginPage').classList.remove('active');
-    document.getElementById('dashboardPage').classList.add('active');
-    
-    restoreSession();
-    loadHistory();
-  } else {
-    document.getElementById('loginError').textContent = '❌ Email atau password salah!';
-    addLog('Login failed: Invalid credentials');
-  }
-});<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="id">
 <head>
   <meta charset="UTF-8" />
@@ -242,31 +220,27 @@ document.getElementById('loginForm').addEventListener('submit', function(e) {
 
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.min.js"></script>
 <script>
-// ==================== CONFIG ====================
 const CONFIG = {
   dbName: 'SunstoneDB',
   dbVersion: 1,
   modelUrl: './sunstone_model.onnx',
   awsApiUrl: 'https://8308ialq3d.execute-api.ap-southeast-1.amazonaws.com',
-  espEndpoint: 'http://localhost:3000/sensor',
   pollInterval: 2000,
   sensorTimeout: 10000,
   users: {
     'pkmkc.sunstone@gmail.com': {
-      passwordHash: '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92', // pkmkcsunstone2025
+      passwordHash: '8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92',
       name: 'Admin SUNSTONE'
     }
   }
 };
 
-// ==================== GLOBAL STATE ====================
 let db = null;
 let onnxSession = null;
 let currentSessionId = null;
 let pollingInterval = null;
 let lastSensorTimestamp = null;
 
-// ==================== UTILITY FUNCTIONS ====================
 async function sha256(str) {
   const buffer = new TextEncoder().encode(str);
   const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
@@ -285,54 +259,36 @@ function addLog(message) {
   console.log(`[${timestamp}] ${message}`);
 }
 
-// ==================== INDEXEDDB SETUP ====================
 async function initDB() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(CONFIG.dbName, CONFIG.dbVersion);
-    
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       db = request.result;
       addLog('IndexedDB initialized');
       resolve(db);
     };
-    
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
-      
       if (!db.objectStoreNames.contains('sessions')) {
         const sessionsStore = db.createObjectStore('sessions', { keyPath: 'id', autoIncrement: true });
         sessionsStore.createIndex('sessionId', 'sessionId', { unique: true });
         sessionsStore.createIndex('status', 'status', { unique: false });
       }
-      
       if (!db.objectStoreNames.contains('sensors')) {
         const sensorsStore = db.createObjectStore('sensors', { keyPath: 'id', autoIncrement: true });
         sensorsStore.createIndex('sessionId', 'sessionId', { unique: false });
         sensorsStore.createIndex('timestamp', 'timestamp', { unique: false });
       }
-      
       if (!db.objectStoreNames.contains('results')) {
         const resultsStore = db.createObjectStore('results', { keyPath: 'id', autoIncrement: true });
         resultsStore.createIndex('sessionId', 'sessionId', { unique: false });
       }
-      
       if (!db.objectStoreNames.contains('syncQueue')) {
         db.createObjectStore('syncQueue', { keyPath: 'id', autoIncrement: true });
       }
-      
       addLog('Database schema created');
     };
-  });
-}
-
-async function dbGet(storeName, key) {
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction([storeName], 'readonly');
-    const store = transaction.objectStore(storeName);
-    const request = store.get(key);
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
   });
 }
 
@@ -377,7 +333,6 @@ async function dbPut(storeName, data) {
   });
 }
 
-// ==================== ONNX MODEL LOADING ====================
 async function loadONNXModel() {
   try {
     addLog('Loading ONNX model...');
@@ -395,7 +350,6 @@ async function predictWithONNX(sensorData) {
     addLog('ONNX model not loaded');
     return null;
   }
-  
   try {
     const inputData = new Float32Array([
       sensorData.mg811,
@@ -403,16 +357,13 @@ async function predictWithONNX(sensorData) {
       sensorData.mq3,
       sensorData.mq135
     ]);
-    
     const tensor = new ort.Tensor('float32', inputData, [1, 4]);
     const feeds = { float_input: tensor };
     const results = await onnxSession.run(feeds);
-    
     const outputData = results.output_label.data;
     const probabilities = Array.from(outputData);
     const maxIdx = probabilities.indexOf(Math.max(...probabilities));
     const categories = ['Normal', 'Ringan', 'Sedang', 'Berat'];
-    
     return {
       category: categories[maxIdx],
       confidence: probabilities[maxIdx],
@@ -429,7 +380,31 @@ async function predictWithONNX(sensorData) {
   }
 }
 
-
+document.getElementById('loginForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const username = document.getElementById('username').value;
+  const password = document.getElementById('password').value;
+  try {
+    const passwordHash = await sha256(password);
+    const user = CONFIG.users[username];
+    if (!user || user.passwordHash !== passwordHash) {
+      document.getElementById('loginError').textContent = '❌ Email atau password salah!';
+      addLog('Login failed: Invalid credentials');
+      return;
+    }
+    const token = btoa(`${username}:${Date.now()}`);
+    localStorage.setItem('authToken', token);
+    localStorage.setItem('username', username);
+    addLog('Login berhasil: ' + username);
+    document.getElementById('loginPage').classList.remove('active');
+    document.getElementById('dashboardPage').classList.add('active');
+    await restoreSession();
+    loadHistory();
+  } catch (err) {
+    document.getElementById('loginError').textContent = 'Error: ' + err.message;
+    addLog('Login error: ' + err.message);
+  }
+});
 
 function logout() {
   localStorage.removeItem('authToken');
@@ -442,20 +417,16 @@ function logout() {
   addLog('Logout berhasil');
 }
 
-// ==================== SESSION MANAGEMENT ====================
 document.getElementById('patientForm').addEventListener('submit', async function(e) {
   e.preventDefault();
-  
   const name = document.getElementById('patientName').value;
   const age = parseInt(document.getElementById('patientAge').value);
   const phone = document.getElementById('patientPhone').value;
   const brinkman = parseInt(document.getElementById('brinkmanIndex').value);
-  
   if (!name || !age || !phone || !brinkman) {
     alert('Semua field harus diisi!');
     return;
   }
-  
   try {
     const openSessions = await dbGetByIndex('sessions', 'status', 'OPEN');
     if (openSessions.length > 0) {
@@ -463,10 +434,8 @@ document.getElementById('patientForm').addEventListener('submit', async function
       if (!confirm) return;
       await closeSession(openSessions[0].sessionId);
     }
-    
     const sessionId = `${name.replace(/\s+/g, '_')}_${phone}`;
     const timestamp = new Date().toISOString();
-    
     const sessionData = {
       sessionId,
       name,
@@ -481,12 +450,10 @@ document.getElementById('patientForm').addEventListener('submit', async function
       lastResultConfidence: null,
       syncedToAWS: false
     };
-    
     await dbAdd('sessions', sessionData);
     localStorage.setItem('SESSION_KEY', sessionId);
     currentSessionId = sessionId;
     lastSensorTimestamp = Date.now();
-    
     document.getElementById('currentName').textContent = name;
     document.getElementById('currentAge').textContent = age;
     document.getElementById('currentPhone').textContent = phone;
@@ -494,7 +461,6 @@ document.getElementById('patientForm').addEventListener('submit', async function
     document.getElementById('currentPatientSection').style.display = 'block';
     document.getElementById('sensorPanel').style.display = 'block';
     document.getElementById('loadingSection').style.display = 'block';
-    
     addLog(`Sesi dimulai: ${name} (${sessionId})`);
     startPolling();
     syncToAWS(sessionData);
@@ -506,10 +472,8 @@ document.getElementById('patientForm').addEventListener('submit', async function
 
 async function finishSession() {
   if (!currentSessionId) return;
-  
   const confirm = window.confirm('Yakin tutup sesi ini?');
   if (!confirm) return;
-  
   await closeSession(currentSessionId);
 }
 
@@ -517,33 +481,27 @@ async function closeSession(sessionId) {
   try {
     const sessions = await dbGetByIndex('sessions', 'sessionId', sessionId);
     if (sessions.length === 0) return;
-    
     const session = sessions[0];
     session.status = 'CLOSED';
     session.finishTimestamp = new Date().toISOString();
     session.syncedToAWS = false;
-    
     const sensorReadings = await dbGetByIndex('sensors', 'sessionId', sessionId);
     session.sensorCount = sensorReadings.length;
-    
     const results = await dbGetByIndex('results', 'sessionId', sessionId);
     if (results.length > 0) {
       const avgConf = results.reduce((sum, r) => sum + r.confidence, 0) / results.length;
       session.avgConfidence = avgConf;
     }
-    
     await dbPut('sessions', session);
     localStorage.removeItem('SESSION_KEY');
     currentSessionId = null;
     stopPolling();
-    
     document.getElementById('addPatientSection').style.display = 'block';
     document.getElementById('currentPatientSection').style.display = 'none';
     document.getElementById('sensorPanel').style.display = 'none';
     document.getElementById('loadingSection').style.display = 'none';
     document.getElementById('resultSection').style.display = 'none';
     document.getElementById('patientForm').reset();
-    
     addLog(`Sesi selesai: ${sessionId}`);
     syncToAWS(session);
     loadHistory();
@@ -555,36 +513,30 @@ async function closeSession(sessionId) {
 async function restoreSession() {
   const sessionKey = localStorage.getItem('SESSION_KEY');
   if (!sessionKey) return;
-  
   try {
     const sessions = await dbGetByIndex('sessions', 'sessionId', sessionKey);
     if (sessions.length === 0 || sessions[0].status !== 'OPEN') {
       localStorage.removeItem('SESSION_KEY');
       return;
     }
-    
     const session = sessions[0];
     currentSessionId = sessionKey;
-    
     document.getElementById('currentName').textContent = session.name;
     document.getElementById('currentAge').textContent = session.age;
     document.getElementById('currentPhone').textContent = session.phone;
     document.getElementById('addPatientSection').style.display = 'none';
     document.getElementById('currentPatientSection').style.display = 'block';
     document.getElementById('sensorPanel').style.display = 'block';
-    
     const results = await dbGetByIndex('results', 'sessionId', sessionKey);
     if (results.length > 0) {
       displayResult(results[results.length - 1]);
     } else {
       document.getElementById('loadingSection').style.display = 'block';
     }
-    
     const sensors = await dbGetByIndex('sensors', 'sessionId', sessionKey);
     if (sensors.length > 0) {
       displaySensorData(sensors[sensors.length - 1]);
     }
-    
     addLog('Session restored: ' + sessionKey);
     startPolling();
   } catch (err) {
@@ -592,19 +544,15 @@ async function restoreSession() {
   }
 }
 
-// ==================== SENSOR POLLING ====================
 function startPolling() {
   if (pollingInterval) clearInterval(pollingInterval);
-  
   pollingInterval = setInterval(async () => {
     if (!currentSessionId) {
       stopPolling();
       return;
     }
-    
     checkSensorTimeout();
   }, CONFIG.pollInterval);
-  
   addLog('Polling started');
 }
 
@@ -618,7 +566,6 @@ function stopPolling() {
 
 function checkSensorTimeout() {
   if (!lastSensorTimestamp) return;
-  
   const elapsed = Date.now() - lastSensorTimestamp;
   if (elapsed > CONFIG.sensorTimeout) {
     document.getElementById('sensorStatus').textContent = '⚠️ Tidak ada data sensor > 10 detik. Cek koneksi ESP32.';
@@ -628,12 +575,9 @@ function checkSensorTimeout() {
 
 async function handleSensorData(data) {
   if (!currentSessionId) return;
-  
   if (data.device_id !== 'ESP01') return;
-  
   const timestamp = new Date().toISOString();
   lastSensorTimestamp = Date.now();
-  
   const sensorData = {
     sessionId: currentSessionId,
     timestamp,
@@ -645,12 +589,9 @@ async function handleSensorData(data) {
     mq135: data.mq135,
     syncedToAWS: false
   };
-  
   await dbAdd('sensors', sensorData);
   displaySensorData(sensorData);
-  
   const prediction = await predictWithONNX(sensorData);
-  
   if (prediction) {
     const resultData = {
       sessionId: currentSessionId,
@@ -660,10 +601,8 @@ async function handleSensorData(data) {
       probabilities: prediction.probabilities,
       syncedToAWS: false
     };
-    
     await dbAdd('results', resultData);
     displayResult(resultData);
-    
     const sessions = await dbGetByIndex('sessions', 'sessionId', currentSessionId);
     if (sessions.length > 0) {
       sessions[0].lastResultCategory = prediction.category;
@@ -684,7 +623,6 @@ function displaySensorData(data) {
     { name: 'MQ-9 (Metana)', value: data.mq9, unit: 'ppm' },
     { name: 'MQ-135 (VOC)', value: data.mq135, unit: 'ppm' }
   ];
-  
   sensorGrid.innerHTML = sensors.map(s => `
     <div class="sensor-item">
       <div style="font-weight:600;font-size:13px;color:#3b4998">${s.name}</div>
@@ -692,7 +630,6 @@ function displaySensorData(data) {
       <div style="font-size:12px;color:#666">${s.unit}</div>
     </div>
   `).join('');
-  
   const elapsed = Math.floor((Date.now() - lastSensorTimestamp) / 1000);
   document.getElementById('sensorStatus').textContent = `⏱️ Update: ${elapsed} detik lalu`;
   document.getElementById('sensorStatus').style.color = '#666';
@@ -703,10 +640,8 @@ function displaySensorData(data) {
 function displayResult(result) {
   document.getElementById('loadingSection').style.display = 'none';
   document.getElementById('resultSection').style.display = 'block';
-  
   document.getElementById('resultCategory').textContent = result.category || '-';
   document.getElementById('resultConfidence').textContent = result.confidence ? (result.confidence * 100).toFixed(1) : '-';
-  
   if (result.probabilities) {
     const probs = result.probabilities;
     document.getElementById('resultDetails').innerHTML = `
@@ -728,31 +663,25 @@ function displayResult(result) {
       </div>
     `;
   }
-  
   document.getElementById('patientStatus').textContent = 'Selesai';
   document.getElementById('patientStatus').className = 'status-badge status-completed';
   addLog(`Hasil ML: ${result.category} (${(result.confidence * 100).toFixed(1)}%)`);
 }
 
-// ==================== HISTORY ====================
 async function loadHistory() {
   const tbody = document.getElementById('historyBody');
   tbody.innerHTML = '<tr><td colspan="7" style="text-align:center">Loading...</td></tr>';
-  
   try {
     const sessions = await dbGetAll('sessions');
     sessions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-    
     if (sessions.length === 0) {
       tbody.innerHTML = '<tr><td colspan="7" style="text-align:center">Belum ada data</td></tr>';
       return;
     }
-    
     tbody.innerHTML = sessions.map(item => {
       const date = new Date(item.timestamp).toLocaleString('id-ID');
       const statusIcon = item.status === 'OPEN' ? '🟢' : '⚫';
       const confidence = item.lastResultConfidence ? (item.lastResultConfidence * 100).toFixed(1) + '%' : '-';
-      
       return `
         <tr>
           <td>${date}</td>
@@ -767,7 +696,6 @@ async function loadHistory() {
         </tr>
       `;
     }).join('');
-    
     addLog(`History loaded: ${sessions.length} records`);
     mergeWithAWS();
   } catch (err) {
@@ -776,7 +704,6 @@ async function loadHistory() {
   }
 }
 
-// ==================== AWS SYNC ====================
 async function syncToAWS(data) {
   try {
     const response = await fetch(`${CONFIG.awsApiUrl}/history`, {
@@ -784,7 +711,6 @@ async function syncToAWS(data) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     });
-    
     if (response.ok) {
       addLog('Synced to AWS: ' + data.sessionId);
       if (data.id) {
@@ -808,10 +734,8 @@ async function mergeWithAWS() {
   try {
     const response = await fetch(`${CONFIG.awsApiUrl}/history`);
     if (!response.ok) return;
-    
     const awsData = await response.json();
     addLog(`Fetched ${awsData.length} records from AWS`);
-    
     for (const awsItem of awsData) {
       const localSessions = await dbGetByIndex('sessions', 'sessionId', awsItem.id);
       if (localSessions.length === 0) {
@@ -831,7 +755,6 @@ async function mergeWithAWS() {
         });
       }
     }
-    
     loadHistory();
   } catch (err) {
     addLog('Merge with AWS failed: ' + err.message);
@@ -842,20 +765,15 @@ async function forceSyncToAWS() {
   try {
     const sessions = await dbGetAll('sessions');
     const unsyncedSessions = sessions.filter(s => !s.syncedToAWS);
-    
     addLog(`Force syncing ${unsyncedSessions.length} sessions to AWS...`);
-    
     for (const session of unsyncedSessions) {
       await syncToAWS(session);
     }
-    
     const syncQueue = await dbGetAll('syncQueue');
     addLog(`Processing ${syncQueue.length} queued items...`);
-    
     for (const item of syncQueue) {
       await syncToAWS(item.data);
     }
-    
     alert('Sync completed!');
     refreshSystemStatus();
   } catch (err) {
@@ -864,10 +782,8 @@ async function forceSyncToAWS() {
   }
 }
 
-// ==================== ADMIN STATUS ====================
 async function refreshSystemStatus() {
   addLog('Checking system status...');
-  
   try {
     const estimate = await navigator.storage.estimate();
     const usedMB = (estimate.usage / 1024 / 1024).toFixed(2);
@@ -876,19 +792,16 @@ async function refreshSystemStatus() {
   } catch (err) {
     updateStatus('idb', false, err.message);
   }
-  
   if (onnxSession) {
     updateStatus('onnx', true, 'Model loaded (< 4MB)');
   } else {
     updateStatus('onnx', false, 'Not loaded');
   }
-  
   if (navigator.onLine) {
     updateStatus('net', true, 'Online');
   } else {
     updateStatus('net', false, 'Offline');
   }
-  
   try {
     const response = await fetch(`${CONFIG.awsApiUrl}/history`, { method: 'HEAD' });
     if (response.ok) {
@@ -899,13 +812,11 @@ async function refreshSystemStatus() {
   } catch (err) {
     updateStatus('aws', false, err.message);
   }
-  
   try {
     const sessions = await dbGetAll('sessions');
     const unsynced = sessions.filter(s => !s.syncedToAWS);
     const syncQueue = await dbGetAll('syncQueue');
     const totalPending = unsynced.length + syncQueue.length;
-    
     if (totalPending === 0) {
       updateStatus('sync', true, 'All synced');
     } else {
@@ -919,7 +830,6 @@ async function refreshSystemStatus() {
 function updateStatus(service, isOk, detail) {
   const statusEl = document.getElementById(`${service}Status`);
   const detailEl = document.getElementById(`${service}Detail`);
-  
   if (isOk === true) {
     statusEl.textContent = '🟢 OK';
     statusEl.style.color = 'green';
@@ -930,11 +840,9 @@ function updateStatus(service, isOk, detail) {
     statusEl.textContent = '🟡 Unknown';
     statusEl.style.color = 'orange';
   }
-  
   if (detailEl) detailEl.textContent = detail || '-';
 }
 
-// ==================== PAGE NAVIGATION ====================
 function showDashboard(e) {
   switchPage('dashboardPage', e);
 }
@@ -958,16 +866,11 @@ function switchPage(pageId, event) {
   document.getElementById(pageId).classList.add('active');
 }
 
-// ==================== ESP32 MOCK SERVER (FOR TESTING) ====================
-// Simulated ESP32 data receiver
 let mockESP32Interval = null;
-
 function startMockESP32() {
   if (mockESP32Interval) return;
-  
   mockESP32Interval = setInterval(() => {
     if (!currentSessionId) return;
-    
     const mockData = {
       device_id: 'ESP01',
       mg811: Math.floor(Math.random() * 200) + 400,
@@ -977,21 +880,16 @@ function startMockESP32() {
       mq9: Math.floor(Math.random() * 100) + 320,
       mq135: Math.floor(Math.random() * 150) + 480
     };
-    
     handleSensorData(mockData);
   }, 2000);
-  
   addLog('Mock ESP32 started (for testing)');
 }
 
-// ==================== INITIALIZATION ====================
 window.addEventListener('load', async function() {
   addLog('SUNSTONE System Starting...');
-  
   try {
     await initDB();
     await loadONNXModel();
-    
     const authToken = localStorage.getItem('authToken');
     if (authToken) {
       document.getElementById('loginPage').classList.remove('active');
@@ -1000,17 +898,12 @@ window.addEventListener('load', async function() {
       await restoreSession();
       loadHistory();
     }
-    
-    // Start mock ESP32 for testing (remove in production)
-    // startMockESP32();
-    
     addLog('✅ SUNSTONE System Ready');
   } catch (err) {
     addLog('❌ Initialization error: ' + err.message);
   }
 });
 
-// Network status monitoring
 window.addEventListener('online', () => {
   addLog('Network: Online');
   forceSyncToAWS();
