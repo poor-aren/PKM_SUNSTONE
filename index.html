@@ -1,0 +1,1029 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SUNSTONE - Lung Health Monitoring</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Segoe UI',sans-serif;background:#f5f6fa;display:flex;justify-content:center;align-items:center;min-height:100vh}
+    .container{max-width:1200px;width:100%;padding:20px}
+    .page{display:none;background:#fff;border-radius:12px;box-shadow:0 4px 25px rgba(0,0,0,0.1);overflow:hidden}
+    .page.active{display:block}
+    .nav-btn{padding:10px 20px;border:2px solid #3b4998;background:#f8f9fa;color:#3b4998;border-radius:8px;cursor:pointer;font-weight:600;margin-right:10px}
+    .nav-btn:hover,.nav-btn.active{background:#3b4998;color:#fff}
+    .dashboard-header{display:flex;justify-content:space-between;align-items:center;padding:20px;border-bottom:2px solid #eee}
+    .dashboard-title{color:#3b4998;font-size:30px;font-weight:bold}
+    .btn{padding:10px 20px;border:none;border-radius:6px;cursor:pointer;font-weight:600;transition:0.3s}
+    .btn-primary{background:#3b4998;color:#fff}
+    .btn-primary:hover{background:#2d3875}
+    .btn-danger{background:#dc3545;color:#fff}
+    .btn-danger:hover{background:#c82333}
+    .btn-success{background:#28a745;color:#fff}
+    .btn-success:hover{background:#218838}
+    .btn-sm{padding:6px 10px;font-size:13px}
+    .add-patient-section{background:#f8f9fa;padding:20px;border-radius:10px;margin:20px}
+    .form-row{display:flex;gap:15px;margin-bottom:15px}
+    .form-group{flex:1}
+    .form-group label{font-weight:600;color:#333;display:block;margin-bottom:5px}
+    .form-group input{width:100%;padding:10px;border:2px solid #ddd;border-radius:6px}
+    .current-patient{background:#e3f2fd;padding:20px;border-left:4px solid #3b4998;border-radius:8px;margin:20px}
+    .status-badge{padding:4px 12px;border-radius:12px;font-weight:600;font-size:12px;margin-left:10px}
+    .status-waiting{background:#fff3cd;color:#856404}
+    .status-processing{background:#cce5ff;color:#0066cc}
+    .status-completed{background:#d4edda;color:#155724}
+    .loading-section{text-align:center;padding:20px;margin:20px}
+    .loading-spinner{width:40px;height:40px;border:4px solid #ddd;border-top:4px solid #3b4998;border-radius:50%;animation:spin 1s linear infinite;margin:10px auto}
+    @keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
+    .result-section{background:#3b4998;color:white;padding:25px;border-radius:12px;margin:20px;text-align:center}
+    .result-details{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-top:10px}
+    .detail-item{background:rgba(255,255,255,0.1);padding:8px;border-radius:6px}
+    .admin-page{padding:20px}
+    .status-table{width:100%;border-collapse:collapse;margin-bottom:20px}
+    .status-table th,.status-table td{padding:8px;border-bottom:1px solid #ddd;text-align:left}
+    .log-container{background:#f8f9fa;padding:10px;border-radius:8px;font-family:monospace;max-height:250px;overflow-y:auto;font-size:12px}
+    .log-entry{border-bottom:1px dashed #ccc;padding:3px 0}
+    table{width:100%;border-collapse:collapse;margin-top:15px}
+    th,td{border-bottom:1px solid #ddd;padding:8px;text-align:left}
+    th{background:#f8f9fa;font-weight:600}
+    .sensor-panel{background:#f8f9fa;padding:15px;border-radius:10px;margin:20px}
+    .sensor-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:10px}
+    .sensor-item{background:white;padding:10px;border-radius:6px;border-left:3px solid #3b4998}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- LOGIN PAGE -->
+    <div id="loginPage" class="page active" style="text-align:center;padding:50px">
+      <h1 style="color:#3b4998;margin-bottom:30px;">SUNSTONE Admin Login</h1>
+      <form id="loginForm" style="max-width:300px;margin:auto;">
+        <input type="text" id="username" placeholder="Email" required style="padding:10px;width:100%;margin-bottom:15px;border:2px solid #ccc;border-radius:6px;">
+        <input type="password" id="password" placeholder="Password" required style="padding:10px;width:100%;margin-bottom:15px;border:2px solid #ccc;border-radius:6px;">
+        <button class="btn btn-primary" style="width:100%;" type="submit">Login</button>
+      </form>
+      <p id="loginError" style="color:red;margin-top:10px;"></p>
+    </div>
+
+    <!-- DASHBOARD PAGE -->
+    <div id="dashboardPage" class="page">
+      <div class="dashboard-header">
+        <h1 class="dashboard-title">DASHBOARD</h1>
+        <div class="nav-links">
+          <button class="nav-btn active" onclick="showDashboard(event)">Dashboard</button>
+          <button class="nav-btn" onclick="showHistory(event)">Riwayat</button>
+          <button class="nav-btn" onclick="showAdmin(event)">Admin</button>
+          <button class="btn btn-danger btn-sm" onclick="logout()">Logout</button>
+        </div>
+      </div>
+
+      <!-- Add Patient Form -->
+      <div id="addPatientSection" class="add-patient-section">
+        <h3>Tambah Pasien Baru</h3>
+        <form id="patientForm">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Nama Lengkap</label>
+              <input id="patientName" type="text" required>
+            </div>
+            <div class="form-group">
+              <label>Umur</label>
+              <input id="patientAge" type="number" required>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>No HP</label>
+              <input id="patientPhone" type="text" required>
+            </div>
+            <div class="form-group">
+              <label>Index Brinkman</label>
+              <input id="brinkmanIndex" type="number" required>
+            </div>
+          </div>
+          <button class="btn btn-primary" type="submit">Mulai Sesi</button>
+        </form>
+      </div>
+
+      <!-- Current Patient Info -->
+      <div id="currentPatientSection" class="current-patient" style="display:none">
+        <h4>Pasien Aktif <span id="patientStatus" class="status-badge status-waiting">Menunggu Data</span></h4>
+        <p><b>Nama:</b> <span id="currentName">-</span> | <b>Umur:</b> <span id="currentAge">-</span> | <b>HP:</b> <span id="currentPhone">-</span></p>
+        <button class="btn btn-danger" onclick="finishSession()">Selesai & Tutup Sesi</button>
+      </div>
+
+      <!-- Sensor Panel -->
+      <div id="sensorPanel" class="sensor-panel" style="display:none">
+        <h4>📊 Data Sensor Real-time</h4>
+        <div id="sensorGrid" class="sensor-grid"></div>
+        <p id="sensorStatus" style="margin-top:10px;color:#666;font-size:13px;">Menunggu data sensor...</p>
+      </div>
+
+      <!-- Loading Section -->
+      <div id="loadingSection" class="loading-section" style="display:none">
+        <div class="loading-spinner"></div>
+        <p id="realtimeStatus">Menunggu data sensor dari perangkat...</p>
+      </div>
+
+      <!-- Result Section -->
+      <div id="resultSection" class="result-section" style="display:none">
+        <h3>Hasil Analisis Machine Learning</h3>
+        <p style="font-size:24px;margin:10px 0">Kategori PPOK: <b id="resultCategory">-</b></p>
+        <p>Confidence: <b id="resultConfidence">-</b>%</p>
+        <h4 style="margin-top:20px">Detail Probabilitas:</h4>
+        <div id="resultDetails" class="result-details"></div>
+      </div>
+    </div>
+
+    <!-- HISTORY PAGE -->
+    <div id="historyPage" class="page">
+      <div class="dashboard-header">
+        <h1 class="dashboard-title">RIWAYAT PEMERIKSAAN</h1>
+        <div class="nav-links">
+          <button class="nav-btn" onclick="showDashboard(event)">Dashboard</button>
+          <button class="nav-btn active" onclick="showHistory(event)">Riwayat</button>
+          <button class="nav-btn" onclick="showAdmin(event)">Admin</button>
+          <button class="btn btn-danger btn-sm" onclick="logout()">Logout</button>
+        </div>
+      </div>
+      <div style="padding:20px">
+        <button class="btn btn-primary" onclick="loadHistory()">Refresh Data</button>
+        <table>
+          <thead>
+            <tr>
+              <th>Tanggal</th>
+              <th>Nama Pasien</th>
+              <th>No HP</th>
+              <th>Hasil PPOK</th>
+              <th>Confidence</th>
+              <th>Status</th>
+              <th>Aksi</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody">
+            <tr><td colspan="7" style="text-align:center">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ADMIN PAGE -->
+    <div id="adminPage" class="page">
+      <div class="admin-page">
+        <h1 style="color:#3b4998;margin-bottom:10px;">ADMIN PANEL - System Status</h1>
+        <div class="nav-links" style="margin-bottom:15px">
+          <button class="nav-btn" onclick="showDashboard(event)">Dashboard</button>
+          <button class="nav-btn" onclick="showHistory(event)">Riwayat</button>
+          <button class="nav-btn active" onclick="showAdmin(event)">Admin</button>
+          <button class="btn btn-danger btn-sm" onclick="logout()">Logout</button>
+        </div>
+        
+        <h3>System Status</h3>
+        <table class="status-table">
+          <tr><th>Component</th><th>Status</th><th>Detail</th></tr>
+          <tr>
+            <td>IndexedDB</td>
+            <td id="idbStatus">🟡 Checking...</td>
+            <td id="idbDetail">-</td>
+          </tr>
+          <tr>
+            <td>ONNX Model</td>
+            <td id="onnxStatus">🟡 Checking...</td>
+            <td id="onnxDetail">-</td>
+          </tr>
+          <tr>
+            <td>Internet Connection</td>
+            <td id="netStatus">🟡 Checking...</td>
+            <td id="netDetail">-</td>
+          </tr>
+          <tr>
+            <td>AWS Sync</td>
+            <td id="awsStatus">🟡 Checking...</td>
+            <td id="awsDetail">-</td>
+          </tr>
+          <tr>
+            <td>Pending Sync Items</td>
+            <td id="syncStatus">🟡 Checking...</td>
+            <td id="syncDetail">-</td>
+          </tr>
+        </table>
+        
+        <button class="btn btn-primary" onclick="refreshSystemStatus()">Refresh Status</button>
+        <button class="btn btn-success" onclick="forceSyncToAWS()" style="margin-left:10px">Force Sync to AWS</button>
+        
+        <h3 style="margin-top:30px;">System Logs</h3>
+        <div id="logContainer" class="log-container">
+          <div class="log-entry">System initialized...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.min.js"></script>
+<script>
+// ==================== CONFIG ====================
+const CONFIG = {
+  dbName: 'SunstoneDB',
+  dbVersion: 1,
+  modelUrl: './sunstone_model.onnx',
+  awsApiUrl: 'https://8308ialq3d.execute-api.ap-southeast-1.amazonaws.com',
+  espEndpoint: 'http://localhost:3000/sensor',
+  pollInterval: 2000,
+  sensorTimeout: 10000,
+  users: {
+    'pkmkc.sunstone@gmail.com': {
+      passwordHash: '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8', // pkmkcsunstone2025
+      name: 'Admin SUNSTONE'
+    }
+  }
+};
+
+// ==================== GLOBAL STATE ====================
+let db = null;
+let onnxSession = null;
+let currentSessionId = null;
+let pollingInterval = null;
+let lastSensorTimestamp = null;
+
+// ==================== UTILITY FUNCTIONS ====================
+async function sha256(str) {
+  const buffer = new TextEncoder().encode(str);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function addLog(message) {
+  const logContainer = document.getElementById('logContainer');
+  const timestamp = new Date().toLocaleTimeString('id-ID');
+  const logEntry = document.createElement('div');
+  logEntry.className = 'log-entry';
+  logEntry.textContent = `[${timestamp}] ${message}`;
+  logContainer.appendChild(logEntry);
+  logContainer.scrollTop = logContainer.scrollHeight;
+  console.log(`[${timestamp}] ${message}`);
+}
+
+// ==================== INDEXEDDB SETUP ====================
+async function initDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(CONFIG.dbName, CONFIG.dbVersion);
+    
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      db = request.result;
+      addLog('IndexedDB initialized');
+      resolve(db);
+    };
+    
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      
+      if (!db.objectStoreNames.contains('sessions')) {
+        const sessionsStore = db.createObjectStore('sessions', { keyPath: 'id', autoIncrement: true });
+        sessionsStore.createIndex('sessionId', 'sessionId', { unique: true });
+        sessionsStore.createIndex('status', 'status', { unique: false });
+      }
+      
+      if (!db.objectStoreNames.contains('sensors')) {
+        const sensorsStore = db.createObjectStore('sensors', { keyPath: 'id', autoIncrement: true });
+        sensorsStore.createIndex('sessionId', 'sessionId', { unique: false });
+        sensorsStore.createIndex('timestamp', 'timestamp', { unique: false });
+      }
+      
+      if (!db.objectStoreNames.contains('results')) {
+        const resultsStore = db.createObjectStore('results', { keyPath: 'id', autoIncrement: true });
+        resultsStore.createIndex('sessionId', 'sessionId', { unique: false });
+      }
+      
+      if (!db.objectStoreNames.contains('syncQueue')) {
+        db.createObjectStore('syncQueue', { keyPath: 'id', autoIncrement: true });
+      }
+      
+      addLog('Database schema created');
+    };
+  });
+}
+
+async function dbGet(storeName, key) {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([storeName], 'readonly');
+    const store = transaction.objectStore(storeName);
+    const request = store.get(key);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function dbGetAll(storeName) {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([storeName], 'readonly');
+    const store = transaction.objectStore(storeName);
+    const request = store.getAll();
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function dbGetByIndex(storeName, indexName, value) {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([storeName], 'readonly');
+    const store = transaction.objectStore(storeName);
+    const index = store.index(indexName);
+    const request = index.getAll(value);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function dbAdd(storeName, data) {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([storeName], 'readwrite');
+    const store = transaction.objectStore(storeName);
+    const request = store.add(data);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function dbPut(storeName, data) {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([storeName], 'readwrite');
+    const store = transaction.objectStore(storeName);
+    const request = store.put(data);
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+// ==================== ONNX MODEL LOADING ====================
+async function loadONNXModel() {
+  try {
+    addLog('Loading ONNX model...');
+    onnxSession = await ort.InferenceSession.create(CONFIG.modelUrl);
+    addLog('ONNX model loaded successfully');
+    return true;
+  } catch (err) {
+    addLog('Error loading ONNX model: ' + err.message);
+    return false;
+  }
+}
+
+async function predictWithONNX(sensorData) {
+  if (!onnxSession) {
+    addLog('ONNX model not loaded');
+    return null;
+  }
+  
+  try {
+    const inputData = new Float32Array([
+      sensorData.mg811,
+      sensorData.mq7,
+      sensorData.mq3,
+      sensorData.mq135
+    ]);
+    
+    const tensor = new ort.Tensor('float32', inputData, [1, 4]);
+    const feeds = { float_input: tensor };
+    const results = await onnxSession.run(feeds);
+    
+    const outputData = results.output_label.data;
+    const probabilities = Array.from(outputData);
+    const maxIdx = probabilities.indexOf(Math.max(...probabilities));
+    const categories = ['Normal', 'Ringan', 'Sedang', 'Berat'];
+    
+    return {
+      category: categories[maxIdx],
+      confidence: probabilities[maxIdx],
+      probabilities: {
+        normal: probabilities[0],
+        ringan: probabilities[1],
+        sedang: probabilities[2],
+        berat: probabilities[3]
+      }
+    };
+  } catch (err) {
+    addLog('Inference error: ' + err.message);
+    return null;
+  }
+}
+
+// ==================== LOGIN ====================
+document.getElementById('loginForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const username = document.getElementById('username').value;
+  const password = document.getElementById('password').value;
+  
+  try {
+    const passwordHash = await sha256(password);
+    const user = CONFIG.users[username];
+    
+    if (!user || user.passwordHash !== passwordHash) {
+      document.getElementById('loginError').textContent = '❌ Email atau password salah!';
+      addLog('Login failed: Invalid credentials');
+      return;
+    }
+    
+    const token = btoa(`${username}:${Date.now()}`);
+    localStorage.setItem('authToken', token);
+    localStorage.setItem('username', username);
+    
+    addLog('Login berhasil: ' + username);
+    document.getElementById('loginPage').classList.remove('active');
+    document.getElementById('dashboardPage').classList.add('active');
+    
+    await restoreSession();
+    loadHistory();
+  } catch (err) {
+    document.getElementById('loginError').textContent = 'Error: ' + err.message;
+    addLog('Login error: ' + err.message);
+  }
+});
+
+function logout() {
+  localStorage.removeItem('authToken');
+  localStorage.removeItem('username');
+  localStorage.removeItem('SESSION_KEY');
+  currentSessionId = null;
+  stopPolling();
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('loginPage').classList.add('active');
+  addLog('Logout berhasil');
+}
+
+// ==================== SESSION MANAGEMENT ====================
+document.getElementById('patientForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  
+  const name = document.getElementById('patientName').value;
+  const age = parseInt(document.getElementById('patientAge').value);
+  const phone = document.getElementById('patientPhone').value;
+  const brinkman = parseInt(document.getElementById('brinkmanIndex').value);
+  
+  if (!name || !age || !phone || !brinkman) {
+    alert('Semua field harus diisi!');
+    return;
+  }
+  
+  try {
+    const openSessions = await dbGetByIndex('sessions', 'status', 'OPEN');
+    if (openSessions.length > 0) {
+      const confirm = window.confirm(`⚠️ Masih ada sesi aktif: ${openSessions[0].name}. Tutup dulu?`);
+      if (!confirm) return;
+      await closeSession(openSessions[0].sessionId);
+    }
+    
+    const sessionId = `${name.replace(/\s+/g, '_')}_${phone}`;
+    const timestamp = new Date().toISOString();
+    
+    const sessionData = {
+      sessionId,
+      name,
+      age,
+      phone,
+      brinkman,
+      status: 'OPEN',
+      timestamp,
+      finishTimestamp: null,
+      device_id: 'ESP01',
+      lastResultCategory: null,
+      lastResultConfidence: null,
+      syncedToAWS: false
+    };
+    
+    await dbAdd('sessions', sessionData);
+    localStorage.setItem('SESSION_KEY', sessionId);
+    currentSessionId = sessionId;
+    lastSensorTimestamp = Date.now();
+    
+    document.getElementById('currentName').textContent = name;
+    document.getElementById('currentAge').textContent = age;
+    document.getElementById('currentPhone').textContent = phone;
+    document.getElementById('addPatientSection').style.display = 'none';
+    document.getElementById('currentPatientSection').style.display = 'block';
+    document.getElementById('sensorPanel').style.display = 'block';
+    document.getElementById('loadingSection').style.display = 'block';
+    
+    addLog(`Sesi dimulai: ${name} (${sessionId})`);
+    startPolling();
+    syncToAWS(sessionData);
+  } catch (err) {
+    alert('Error membuat sesi: ' + err.message);
+    addLog('Error membuat sesi: ' + err.message);
+  }
+});
+
+async function finishSession() {
+  if (!currentSessionId) return;
+  
+  const confirm = window.confirm('Yakin tutup sesi ini?');
+  if (!confirm) return;
+  
+  await closeSession(currentSessionId);
+}
+
+async function closeSession(sessionId) {
+  try {
+    const sessions = await dbGetByIndex('sessions', 'sessionId', sessionId);
+    if (sessions.length === 0) return;
+    
+    const session = sessions[0];
+    session.status = 'CLOSED';
+    session.finishTimestamp = new Date().toISOString();
+    session.syncedToAWS = false;
+    
+    const sensorReadings = await dbGetByIndex('sensors', 'sessionId', sessionId);
+    session.sensorCount = sensorReadings.length;
+    
+    const results = await dbGetByIndex('results', 'sessionId', sessionId);
+    if (results.length > 0) {
+      const avgConf = results.reduce((sum, r) => sum + r.confidence, 0) / results.length;
+      session.avgConfidence = avgConf;
+    }
+    
+    await dbPut('sessions', session);
+    localStorage.removeItem('SESSION_KEY');
+    currentSessionId = null;
+    stopPolling();
+    
+    document.getElementById('addPatientSection').style.display = 'block';
+    document.getElementById('currentPatientSection').style.display = 'none';
+    document.getElementById('sensorPanel').style.display = 'none';
+    document.getElementById('loadingSection').style.display = 'none';
+    document.getElementById('resultSection').style.display = 'none';
+    document.getElementById('patientForm').reset();
+    
+    addLog(`Sesi selesai: ${sessionId}`);
+    syncToAWS(session);
+    loadHistory();
+  } catch (err) {
+    addLog('Error closing session: ' + err.message);
+  }
+}
+
+async function restoreSession() {
+  const sessionKey = localStorage.getItem('SESSION_KEY');
+  if (!sessionKey) return;
+  
+  try {
+    const sessions = await dbGetByIndex('sessions', 'sessionId', sessionKey);
+    if (sessions.length === 0 || sessions[0].status !== 'OPEN') {
+      localStorage.removeItem('SESSION_KEY');
+      return;
+    }
+    
+    const session = sessions[0];
+    currentSessionId = sessionKey;
+    
+    document.getElementById('currentName').textContent = session.name;
+    document.getElementById('currentAge').textContent = session.age;
+    document.getElementById('currentPhone').textContent = session.phone;
+    document.getElementById('addPatientSection').style.display = 'none';
+    document.getElementById('currentPatientSection').style.display = 'block';
+    document.getElementById('sensorPanel').style.display = 'block';
+    
+    const results = await dbGetByIndex('results', 'sessionId', sessionKey);
+    if (results.length > 0) {
+      displayResult(results[results.length - 1]);
+    } else {
+      document.getElementById('loadingSection').style.display = 'block';
+    }
+    
+    const sensors = await dbGetByIndex('sensors', 'sessionId', sessionKey);
+    if (sensors.length > 0) {
+      displaySensorData(sensors[sensors.length - 1]);
+    }
+    
+    addLog('Session restored: ' + sessionKey);
+    startPolling();
+  } catch (err) {
+    addLog('Error restoring session: ' + err.message);
+  }
+}
+
+// ==================== SENSOR POLLING ====================
+function startPolling() {
+  if (pollingInterval) clearInterval(pollingInterval);
+  
+  pollingInterval = setInterval(async () => {
+    if (!currentSessionId) {
+      stopPolling();
+      return;
+    }
+    
+    checkSensorTimeout();
+  }, CONFIG.pollInterval);
+  
+  addLog('Polling started');
+}
+
+function stopPolling() {
+  if (pollingInterval) {
+    clearInterval(pollingInterval);
+    pollingInterval = null;
+    addLog('Polling stopped');
+  }
+}
+
+function checkSensorTimeout() {
+  if (!lastSensorTimestamp) return;
+  
+  const elapsed = Date.now() - lastSensorTimestamp;
+  if (elapsed > CONFIG.sensorTimeout) {
+    document.getElementById('sensorStatus').textContent = '⚠️ Tidak ada data sensor > 10 detik. Cek koneksi ESP32.';
+    document.getElementById('sensorStatus').style.color = 'red';
+  }
+}
+
+async function handleSensorData(data) {
+  if (!currentSessionId) return;
+  
+  if (data.device_id !== 'ESP01') return;
+  
+  const timestamp = new Date().toISOString();
+  lastSensorTimestamp = Date.now();
+  
+  const sensorData = {
+    sessionId: currentSessionId,
+    timestamp,
+    mg811: data.mg811,
+    mq7: data.mq7,
+    mq3: data.mq3,
+    mq6: data.mq6,
+    mq9: data.mq9,
+    mq135: data.mq135,
+    syncedToAWS: false
+  };
+  
+  await dbAdd('sensors', sensorData);
+  displaySensorData(sensorData);
+  
+  const prediction = await predictWithONNX(sensorData);
+  
+  if (prediction) {
+    const resultData = {
+      sessionId: currentSessionId,
+      timestamp,
+      category: prediction.category,
+      confidence: prediction.confidence,
+      probabilities: prediction.probabilities,
+      syncedToAWS: false
+    };
+    
+    await dbAdd('results', resultData);
+    displayResult(resultData);
+    
+    const sessions = await dbGetByIndex('sessions', 'sessionId', currentSessionId);
+    if (sessions.length > 0) {
+      sessions[0].lastResultCategory = prediction.category;
+      sessions[0].lastResultConfidence = prediction.confidence;
+      sessions[0].syncedToAWS = false;
+      await dbPut('sessions', sessions[0]);
+    }
+  }
+}
+
+function displaySensorData(data) {
+  const sensorGrid = document.getElementById('sensorGrid');
+  const sensors = [
+    { name: 'MG-811 (CO₂)', value: data.mg811, unit: 'ppm' },
+    { name: 'MQ-7 (CO)', value: data.mq7, unit: 'ppm' },
+    { name: 'MQ-3 (Etanol)', value: data.mq3, unit: 'ppm' },
+    { name: 'MQ-6 (Propana)', value: data.mq6, unit: 'ppm' },
+    { name: 'MQ-9 (Metana)', value: data.mq9, unit: 'ppm' },
+    { name: 'MQ-135 (VOC)', value: data.mq135, unit: 'ppm' }
+  ];
+  
+  sensorGrid.innerHTML = sensors.map(s => `
+    <div class="sensor-item">
+      <div style="font-weight:600;font-size:13px;color:#3b4998">${s.name}</div>
+      <div style="font-size:20px;margin:5px 0">${s.value}</div>
+      <div style="font-size:12px;color:#666">${s.unit}</div>
+    </div>
+  `).join('');
+  
+  const elapsed = Math.floor((Date.now() - lastSensorTimestamp) / 1000);
+  document.getElementById('sensorStatus').textContent = `⏱️ Update: ${elapsed} detik lalu`;
+  document.getElementById('sensorStatus').style.color = '#666';
+  document.getElementById('patientStatus').textContent = 'Memproses';
+  document.getElementById('patientStatus').className = 'status-badge status-processing';
+}
+
+function displayResult(result) {
+  document.getElementById('loadingSection').style.display = 'none';
+  document.getElementById('resultSection').style.display = 'block';
+  
+  document.getElementById('resultCategory').textContent = result.category || '-';
+  document.getElementById('resultConfidence').textContent = result.confidence ? (result.confidence * 100).toFixed(1) : '-';
+  
+  if (result.probabilities) {
+    const probs = result.probabilities;
+    document.getElementById('resultDetails').innerHTML = `
+      <div class="detail-item">
+        <div style="font-size:12px">Normal</div>
+        <div style="font-size:18px;font-weight:600">${(probs.normal * 100).toFixed(1)}%</div>
+      </div>
+      <div class="detail-item">
+        <div style="font-size:12px">Ringan</div>
+        <div style="font-size:18px;font-weight:600">${(probs.ringan * 100).toFixed(1)}%</div>
+      </div>
+      <div class="detail-item">
+        <div style="font-size:12px">Sedang</div>
+        <div style="font-size:18px;font-weight:600">${(probs.sedang * 100).toFixed(1)}%</div>
+      </div>
+      <div class="detail-item">
+        <div style="font-size:12px">Berat</div>
+        <div style="font-size:18px;font-weight:600">${(probs.berat * 100).toFixed(1)}%</div>
+      </div>
+    `;
+  }
+  
+  document.getElementById('patientStatus').textContent = 'Selesai';
+  document.getElementById('patientStatus').className = 'status-badge status-completed';
+  addLog(`Hasil ML: ${result.category} (${(result.confidence * 100).toFixed(1)}%)`);
+}
+
+// ==================== HISTORY ====================
+async function loadHistory() {
+  const tbody = document.getElementById('historyBody');
+  tbody.innerHTML = '<tr><td colspan="7" style="text-align:center">Loading...</td></tr>';
+  
+  try {
+    const sessions = await dbGetAll('sessions');
+    sessions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    
+    if (sessions.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center">Belum ada data</td></tr>';
+      return;
+    }
+    
+    tbody.innerHTML = sessions.map(item => {
+      const date = new Date(item.timestamp).toLocaleString('id-ID');
+      const statusIcon = item.status === 'OPEN' ? '🟢' : '⚫';
+      const confidence = item.lastResultConfidence ? (item.lastResultConfidence * 100).toFixed(1) + '%' : '-';
+      
+      return `
+        <tr>
+          <td>${date}</td>
+          <td>${item.name}</td>
+          <td>${item.phone}</td>
+          <td>${item.lastResultCategory || '-'}</td>
+          <td>${confidence}</td>
+          <td>${statusIcon} ${item.status}</td>
+          <td>
+            ${item.status === 'OPEN' ? `<button class="btn btn-danger btn-sm" onclick="closeSession('${item.sessionId}')">Tutup</button>` : ''}
+          </td>
+        </tr>
+      `;
+    }).join('');
+    
+    addLog(`History loaded: ${sessions.length} records`);
+    mergeWithAWS();
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:red">Error: ${err.message}</td></tr>`;
+    addLog('Error loading history: ' + err.message);
+  }
+}
+
+// ==================== AWS SYNC ====================
+async function syncToAWS(data) {
+  try {
+    const response = await fetch(`${CONFIG.awsApiUrl}/history`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    
+    if (response.ok) {
+      addLog('Synced to AWS: ' + data.sessionId);
+      if (data.id) {
+        const sessions = await dbGetByIndex('sessions', 'sessionId', data.sessionId);
+        if (sessions.length > 0) {
+          sessions[0].syncedToAWS = true;
+          await dbPut('sessions', sessions[0]);
+        }
+      }
+    } else {
+      addLog('AWS sync failed, queued for retry');
+      await dbAdd('syncQueue', { type: 'session', data, attempts: 0, lastAttempt: Date.now() });
+    }
+  } catch (err) {
+    addLog('AWS sync error: ' + err.message);
+    await dbAdd('syncQueue', { type: 'session', data, attempts: 0, lastAttempt: Date.now() });
+  }
+}
+
+async function mergeWithAWS() {
+  try {
+    const response = await fetch(`${CONFIG.awsApiUrl}/history`);
+    if (!response.ok) return;
+    
+    const awsData = await response.json();
+    addLog(`Fetched ${awsData.length} records from AWS`);
+    
+    for (const awsItem of awsData) {
+      const localSessions = await dbGetByIndex('sessions', 'sessionId', awsItem.id);
+      if (localSessions.length === 0) {
+        await dbAdd('sessions', {
+          sessionId: awsItem.id,
+          name: awsItem.name,
+          age: awsItem.age,
+          phone: awsItem.phone,
+          brinkman: awsItem.brinkman,
+          status: awsItem.status,
+          timestamp: awsItem.timestamp,
+          finishTimestamp: awsItem.finishTimestamp,
+          device_id: awsItem.device_id || 'ESP01',
+          lastResultCategory: awsItem.lastResultCategory,
+          lastResultConfidence: awsItem.lastResultConfidence,
+          syncedToAWS: true
+        });
+      }
+    }
+    
+    loadHistory();
+  } catch (err) {
+    addLog('Merge with AWS failed: ' + err.message);
+  }
+}
+
+async function forceSyncToAWS() {
+  try {
+    const sessions = await dbGetAll('sessions');
+    const unsyncedSessions = sessions.filter(s => !s.syncedToAWS);
+    
+    addLog(`Force syncing ${unsyncedSessions.length} sessions to AWS...`);
+    
+    for (const session of unsyncedSessions) {
+      await syncToAWS(session);
+    }
+    
+    const syncQueue = await dbGetAll('syncQueue');
+    addLog(`Processing ${syncQueue.length} queued items...`);
+    
+    for (const item of syncQueue) {
+      await syncToAWS(item.data);
+    }
+    
+    alert('Sync completed!');
+    refreshSystemStatus();
+  } catch (err) {
+    alert('Sync error: ' + err.message);
+    addLog('Force sync error: ' + err.message);
+  }
+}
+
+// ==================== ADMIN STATUS ====================
+async function refreshSystemStatus() {
+  addLog('Checking system status...');
+  
+  try {
+    const estimate = await navigator.storage.estimate();
+    const usedMB = (estimate.usage / 1024 / 1024).toFixed(2);
+    const quotaMB = (estimate.quota / 1024 / 1024).toFixed(2);
+    updateStatus('idb', true, `${usedMB}MB / ${quotaMB}MB`);
+  } catch (err) {
+    updateStatus('idb', false, err.message);
+  }
+  
+  if (onnxSession) {
+    updateStatus('onnx', true, 'Model loaded (< 4MB)');
+  } else {
+    updateStatus('onnx', false, 'Not loaded');
+  }
+  
+  if (navigator.onLine) {
+    updateStatus('net', true, 'Online');
+  } else {
+    updateStatus('net', false, 'Offline');
+  }
+  
+  try {
+    const response = await fetch(`${CONFIG.awsApiUrl}/history`, { method: 'HEAD' });
+    if (response.ok) {
+      updateStatus('aws', true, 'Connected');
+    } else {
+      updateStatus('aws', false, `HTTP ${response.status}`);
+    }
+  } catch (err) {
+    updateStatus('aws', false, err.message);
+  }
+  
+  try {
+    const sessions = await dbGetAll('sessions');
+    const unsynced = sessions.filter(s => !s.syncedToAWS);
+    const syncQueue = await dbGetAll('syncQueue');
+    const totalPending = unsynced.length + syncQueue.length;
+    
+    if (totalPending === 0) {
+      updateStatus('sync', true, 'All synced');
+    } else {
+      updateStatus('sync', false, `${totalPending} items pending`);
+    }
+  } catch (err) {
+    updateStatus('sync', false, err.message);
+  }
+}
+
+function updateStatus(service, isOk, detail) {
+  const statusEl = document.getElementById(`${service}Status`);
+  const detailEl = document.getElementById(`${service}Detail`);
+  
+  if (isOk === true) {
+    statusEl.textContent = '🟢 OK';
+    statusEl.style.color = 'green';
+  } else if (isOk === false) {
+    statusEl.textContent = '🔴 Error';
+    statusEl.style.color = 'red';
+  } else {
+    statusEl.textContent = '🟡 Unknown';
+    statusEl.style.color = 'orange';
+  }
+  
+  if (detailEl) detailEl.textContent = detail || '-';
+}
+
+// ==================== PAGE NAVIGATION ====================
+function showDashboard(e) {
+  switchPage('dashboardPage', e);
+}
+
+function showHistory(e) {
+  switchPage('historyPage', e);
+  loadHistory();
+}
+
+function showAdmin(e) {
+  switchPage('adminPage', e);
+  refreshSystemStatus();
+}
+
+function switchPage(pageId, event) {
+  if (event) {
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    event.target.classList.add('active');
+  }
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById(pageId).classList.add('active');
+}
+
+// ==================== ESP32 MOCK SERVER (FOR TESTING) ====================
+// Simulated ESP32 data receiver
+let mockESP32Interval = null;
+
+function startMockESP32() {
+  if (mockESP32Interval) return;
+  
+  mockESP32Interval = setInterval(() => {
+    if (!currentSessionId) return;
+    
+    const mockData = {
+      device_id: 'ESP01',
+      mg811: Math.floor(Math.random() * 200) + 400,
+      mq7: Math.floor(Math.random() * 100) + 300,
+      mq3: Math.floor(Math.random() * 100) + 250,
+      mq6: Math.floor(Math.random() * 100) + 300,
+      mq9: Math.floor(Math.random() * 100) + 320,
+      mq135: Math.floor(Math.random() * 150) + 480
+    };
+    
+    handleSensorData(mockData);
+  }, 2000);
+  
+  addLog('Mock ESP32 started (for testing)');
+}
+
+// ==================== INITIALIZATION ====================
+window.addEventListener('load', async function() {
+  addLog('SUNSTONE System Starting...');
+  
+  try {
+    await initDB();
+    await loadONNXModel();
+    
+    const authToken = localStorage.getItem('authToken');
+    if (authToken) {
+      document.getElementById('loginPage').classList.remove('active');
+      document.getElementById('dashboardPage').classList.add('active');
+      addLog('Auto-login from token');
+      await restoreSession();
+      loadHistory();
+    }
+    
+    // Start mock ESP32 for testing (remove in production)
+    // startMockESP32();
+    
+    addLog('✅ SUNSTONE System Ready');
+  } catch (err) {
+    addLog('❌ Initialization error: ' + err.message);
+  }
+});
+
+// Network status monitoring
+window.addEventListener('online', () => {
+  addLog('Network: Online');
+  forceSyncToAWS();
+});
+
+window.addEventListener('offline', () => {
+  addLog('Network: Offline - working in offline mode');
+});
