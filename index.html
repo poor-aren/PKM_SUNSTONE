@@ -470,18 +470,24 @@ function connectMQTT() {
       try {
         const data = JSON.parse(payload.toString());
         
+        addLog(`📩 MQTT Message - Topic: ${topic}`);
+        addLog(`📩 Payload: ${JSON.stringify(data)}`);
+        
         // Handle sensor data
         if (topic.includes('/sensor')) {
-          addLog(`📥 Data received: ${data.device_id}`);
+          addLog(`📥 Processing sensor data from: ${data.device_id}`);
           processSensorData(data);
         }
         // Handle status request from ESP32
         else if (topic.includes('/status_request')) {
-          addLog(`📥 Status request from: ${data.device_id}`);
+          addLog(`📥 Processing status request from: ${data.device_id}`);
           handleStatusRequest(data);
         }
+        else {
+          addLog(`⚠️ Unknown topic pattern: ${topic}`);
+        }
       } catch (e) {
-        addLog('❌ Invalid JSON from MQTT');
+        addLog('❌ Invalid JSON from MQTT: ' + e.message);
       }
     });
     
@@ -527,9 +533,20 @@ function updateMQTTIndicator(status) {
 
 function sendMQTTCommand(cmd) {
   if (mqttClient && mqttConnected) {
-    mqttClient.publish(CONFIG.mqtt.topics.cmd, JSON.stringify(cmd), { qos: 1 }); // QoS 1 untuk lebih reliable
-    addLog('📤 Command sent: ' + JSON.stringify(cmd));
-    showToast('📤 Command sent to ESP32', 2000);
+    const topic = CONFIG.mqtt.topics.cmd;
+    const payload = JSON.stringify(cmd);
+    
+    addLog(`📤 Publishing to: ${topic}`);
+    addLog(`📤 Payload: ${payload}`);
+    
+    mqttClient.publish(topic, payload, { qos: 1 }, (err) => {
+      if (err) {
+        addLog('❌ Publish failed: ' + err.message);
+      } else {
+        addLog('✅ Command published successfully');
+        showToast('📤 Command sent to ESP32', 2000);
+      }
+    });
   } else {
     addLog('❌ Cannot send command: MQTT not connected');
     showToast('❌ MQTT not connected!', 2000);
@@ -537,19 +554,22 @@ function sendMQTTCommand(cmd) {
 }
 
 async function handleStatusRequest(data) {
-  addLog('🔍 Checking session status for response...');
+  addLog('🔍 Processing status request...');
+  addLog(`🔍 Request from device: ${data.device_id}`);
   
   const activeSession = await getActiveSession();
   
   if (activeSession && activeSession.status === 'OPEN') {
-    addLog(`📢 Responding: Session ACTIVE (${activeSession.name})`);
+    addLog(`✅ Found active session: ${activeSession.name} (${activeSession.sessionId})`);
+    addLog('📢 Sending session_ready command...');
     sendMQTTCommand({ 
       action: 'session_ready', 
       session_id: activeSession.sessionId, 
       patient_name: activeSession.name 
     });
   } else {
-    addLog('📢 Responding: NO active session');
+    addLog('⚠️ No active session found in database');
+    addLog('📢 Sending no_session command...');
     sendMQTTCommand({ action: 'no_session' });
   }
 }
