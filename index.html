@@ -38,7 +38,7 @@
     .sensor-card{background:#fff;padding:15px;border-radius:8px;border-left:4px solid #3b4998;box-shadow:0 2px 8px rgba(0,0,0,0.1)}
     .sensor-value{font-size:24px;font-weight:bold;color:#3b4998;margin:5px 0}
     .sensor-label{font-size:12px;color:#666;text-transform:uppercase}
-    .result-section{background:#3b4998;color:white;padding:25px;border-radius:12px;margin:20px}
+    .result-section{background:#3b4998;color:white;padding:25px;border-radius:12px;margin:20px;display:none}
     .result-category{font-size:36px;font-weight:bold;margin:15px 0}
     .result-confidence{font-size:18px;margin-bottom:20px}
     .prob-bars{margin-top:20px}
@@ -136,22 +136,18 @@
           <div class="sensor-card">
             <div class="sensor-label">MG-811 (CO₂)</div>
             <div class="sensor-value" id="mg811">-</div>
-            <div style="font-size:12px;color:#999">ppm</div>
           </div>
           <div class="sensor-card">
             <div class="sensor-label">MQ-7 (CO)</div>
             <div class="sensor-value" id="mq7">-</div>
-            <div style="font-size:12px;color:#999">ppm</div>
           </div>
           <div class="sensor-card">
             <div class="sensor-label">MQ-3 (Etanol)</div>
             <div class="sensor-value" id="mq3">-</div>
-            <div style="font-size:12px;color:#999">ppm</div>
           </div>
           <div class="sensor-card">
             <div class="sensor-label">MQ-135 (VOC)</div>
             <div class="sensor-value" id="mq135">-</div>
-            <div style="font-size:12px;color:#999">ppm</div>
           </div>
         </div>
       </div>
@@ -280,7 +276,7 @@ const CONFIG = {
       name: 'Admin SUNSTONE'
     }
   },
-  modelUrl: 'sunstone_model.onnx', // Tanpa ./ karena GitHub Pages
+  modelUrl: 'sunstone_model.onnx',
   mqtt: {
     broker: 'wss://broker.hivemq.com:8884/mqtt',
     clientId: 'sunstone_web_' + Math.random().toString(16).substr(2, 8),
@@ -473,12 +469,10 @@ function connectMQTT() {
         addLog(`📩 MQTT Message - Topic: ${topic}`);
         addLog(`📩 Payload: ${JSON.stringify(data)}`);
         
-        // Handle sensor data
         if (topic.includes('/sensor')) {
           addLog(`📥 Processing sensor data from: ${data.device_id}`);
           processSensorData(data);
         }
-        // Handle status request from ESP32
         else if (topic.includes('/status_request')) {
           addLog(`📥 Processing status request from: ${data.device_id}`);
           handleStatusRequest(data);
@@ -598,7 +592,6 @@ async function runInference(sensorData) {
   
   if (!onnxSession) {
     addLog('⚠️  No ONNX model - using fallback');
-    // Fallback logic
     const avg = (sensorData.mg811 + sensorData.mq7 + sensorData.mq3 + sensorData.mq135) / 4;
     addLog(`📊 Average sensor value: ${avg.toFixed(2)}`);
     
@@ -608,9 +601,9 @@ async function runInference(sensorData) {
     } else if (avg < 350) {
       result = { category: 'Ringan', confidence: 0.78, probabilities: {normal:0.10,ringan:0.78,sedang:0.10,berat:0.02} };
     } else if (avg < 500) {
-      result = { category: 'Sedang', confidence: 0.82, probabilities: {normal:0.05,ringan:0.15,sedang:0.82,berat:0.08} };
+      result = { category: 'Sedang', confidence: 0.82, probabilities: {normal:0.05,ringan:0.15,sedang:0.72,berat:0.08} };
     } else {
-      result = { category: 'Berat', confidence: 0.90, probabilities: {normal:0.02,ringan:0.05,sedang:0.13,berat:0.90} };
+      result = { category: 'Berat', confidence: 0.90, probabilities: {normal:0.02,ringan:0.05,sedang:0.13,berat:0.80} };
     }
     
     addLog(`✅ Fallback result: ${result.category} (${(result.confidence * 100).toFixed(1)}%)`);
@@ -623,7 +616,7 @@ async function runInference(sensorData) {
     const tensor = new ort.Tensor('float32', input, [1, 4]);
     
     addLog('🔧 Input names: ' + JSON.stringify(onnxSession.inputNames));
-    const inputName = onnxSession.inputNames[0]; // Use first input name
+    const inputName = onnxSession.inputNames[0];
     const feeds = {};
     feeds[inputName] = tensor;
     
@@ -631,7 +624,7 @@ async function runInference(sensorData) {
     const results = await onnxSession.run(feeds);
     addLog('✅ ONNX inference complete');
     
-    const outputName = onnxSession.outputNames[0]; // Use first output name
+    const outputName = onnxSession.outputNames[0];
     const output = Array.from(results[outputName].data);
     addLog(`📊 ONNX output: [${output.map(v => v.toFixed(4)).join(', ')}]`);
     
@@ -710,7 +703,7 @@ document.getElementById('patientForm').addEventListener('submit', async function
   const existingSession = await getActiveSession();
   if (existingSession) {
     alert(`⚠️ Masih ada sesi aktif: ${existingSession.name}. Tutup sesi tersebut dulu!`);
-    return; // TIDAK BOLEH buat sesi baru kalau masih ada yang OPEN
+    return;
   }
   
   const name = document.getElementById('patientName').value;
@@ -748,7 +741,6 @@ document.getElementById('patientForm').addEventListener('submit', async function
   addLog(`✅ Sesi dimulai: ${name}`);
   showToast('✅ Sesi berhasil dibuat!');
   
-  // BROADCAST ke ESP32 bahwa sesi sudah ready
   addLog('📢 Broadcasting session_ready to ESP32...');
   sendMQTTCommand({ action: 'session_ready', session_id: sessionId, patient_name: name });
   
@@ -764,14 +756,12 @@ async function finishSession() {
     finishTimestamp: new Date().toISOString()
   });
   
-  // Kirim command ke ESP32 untuk stop & tampil sesi selesai
   sendMQTTCommand({ action: 'close_session' });
   
   resetDashboard();
   addLog(`✅ Sesi selesai`);
   showToast('✅ Sesi ditutup!');
   
-  // Setelah reset, kirim status "no session" ke ESP32
   setTimeout(() => {
     sendMQTTCommand({ action: 'no_session' });
   }, 1000);
@@ -827,13 +817,11 @@ async function restoreSession() {
 // SENSOR DATA PROCESSING
 // ============================================
 async function processSensorData(sensorData) {
-  // VALIDASI: Hanya terima data kalau ada sesi OPEN
   if (!currentSessionId) {
     addLog('⚠️ Data ditolak: tidak ada sesi aktif');
     return;
   }
   
-  // VALIDASI: Cek apakah sesi masih OPEN
   const activeSession = await getActiveSession();
   if (!activeSession || activeSession.sessionId !== currentSessionId) {
     addLog('⚠️ Data ditolak: sesi tidak valid');
@@ -842,7 +830,6 @@ async function processSensorData(sensorData) {
   
   lastSensorTimestamp = new Date();
   
-  // Save to IndexedDB
   const sensorRecord = {
     sessionId: currentSessionId,
     timestamp: sensorData.ts || new Date().toISOString(),
@@ -853,7 +840,6 @@ async function processSensorData(sensorData) {
   };
   await saveSensorData(sensorRecord);
   
-  // Update UI
   document.getElementById('mg811').textContent = sensorData.mg811;
   document.getElementById('mq7').textContent = sensorData.mq7;
   document.getElementById('mq3').textContent = sensorData.mq3;
@@ -864,7 +850,6 @@ async function processSensorData(sensorData) {
   document.getElementById('patientStatus').textContent = 'Processing';
   document.getElementById('patientStatus').className = 'status-badge status-processing';
   
-  // Run inference
   addLog('🚀 Starting inference process...');
   const result = await runInference(sensorData);
   
@@ -1000,14 +985,12 @@ async function loadHistory() {
 async function refreshSystemStatus() {
   addLog('🔍 Checking system...');
   
-  // MQTT
   if (mqttConnected) {
     updateStatus('mqttBroker', true, 'Connected to ' + CONFIG.mqtt.broker);
   } else {
     updateStatus('mqttBroker', false, 'Disconnected');
   }
   
-  // IndexedDB
   if (db) {
     const sessions = await getAllSessions();
     updateStatus('db', true, `${sessions.length} sessions`);
@@ -1015,14 +998,12 @@ async function refreshSystemStatus() {
     updateStatus('db', false, 'Not initialized');
   }
   
-  // ONNX
   if (onnxSession) {
     updateStatus('model', true, 'Loaded');
   } else {
     updateStatus('model', null, 'Using fallback');
   }
   
-  // ESP32
   if (lastSensorTimestamp) {
     const secondsAgo = Math.floor((new Date() - lastSensorTimestamp) / 1000);
     if (secondsAgo < 10) {
@@ -1076,7 +1057,6 @@ window.addEventListener('load', async function() {
     document.getElementById('dashboardPage').classList.add('active');
     await restoreSession();
   } else {
-    // Kalau belum login, kirim "no session" ke ESP32
     setTimeout(() => {
       if (mqttClient && mqttConnected) {
         sendMQTTCommand({ action: 'no_session' });
@@ -1086,7 +1066,6 @@ window.addEventListener('load', async function() {
   
   addLog('✅ System ready!');
   
-  // Periodic broadcast status ke ESP32
   setInterval(() => {
     if (mqttClient && mqttConnected) {
       if (currentSessionId) {
@@ -1095,10 +1074,9 @@ window.addEventListener('load', async function() {
         sendMQTTCommand({ action: 'no_session' });
       }
     }
-  }, 10000); // Setiap 10 detik broadcast status
+  }, 10000);
 });
 
-// Monitor stale data
 setInterval(() => {
   if (currentSessionId && lastSensorTimestamp) {
     const secondsAgo = Math.floor((new Date() - lastSensorTimestamp) / 1000);
