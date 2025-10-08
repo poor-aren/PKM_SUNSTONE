@@ -280,7 +280,7 @@ const CONFIG = {
       name: 'Admin SUNSTONE'
     }
   },
-  modelUrl: './sunstone_model.onnx',
+  modelUrl: 'sunstone_model.onnx', // Tanpa ./ karena GitHub Pages
   mqtt: {
     broker: 'wss://broker.hivemq.com:8884/mqtt',
     clientId: 'sunstone_web_' + Math.random().toString(16).substr(2, 8),
@@ -579,33 +579,61 @@ async function handleStatusRequest(data) {
 // ============================================
 async function loadONNXModel() {
   try {
-    addLog('📦 Loading ONNX model...');
+    addLog('📦 Loading ONNX model from: ' + CONFIG.modelUrl);
     onnxSession = await ort.InferenceSession.create(CONFIG.modelUrl);
-    addLog('✅ ONNX model loaded');
+    addLog('✅ ONNX model loaded successfully!');
+    addLog('✅ Model inputs: ' + JSON.stringify(onnxSession.inputNames));
+    addLog('✅ Model outputs: ' + JSON.stringify(onnxSession.outputNames));
     return true;
   } catch (error) {
-    addLog('⚠️  ONNX model not found - using fallback logic');
+    addLog('❌ ONNX model load failed: ' + error.message);
+    addLog('⚠️  Using fallback logic instead');
     return false;
   }
 }
 
 async function runInference(sensorData) {
+  addLog('🤖 Running inference...');
+  addLog(`📊 Input data: MG811=${sensorData.mg811}, MQ7=${sensorData.mq7}, MQ3=${sensorData.mq3}, MQ135=${sensorData.mq135}`);
+  
   if (!onnxSession) {
+    addLog('⚠️  No ONNX model - using fallback');
     // Fallback logic
     const avg = (sensorData.mg811 + sensorData.mq7 + sensorData.mq3 + sensorData.mq135) / 4;
-    if (avg < 200) return { category: 'Normal', confidence: 0.85, probabilities: {normal:0.85,ringan:0.10,sedang:0.03,berat:0.02} };
-    if (avg < 350) return { category: 'Ringan', confidence: 0.78, probabilities: {normal:0.10,ringan:0.78,sedang:0.10,berat:0.02} };
-    if (avg < 500) return { category: 'Sedang', confidence: 0.82, probabilities: {normal:0.05,ringan:0.15,sedang:0.82,berat:0.08} };
-    return { category: 'Berat', confidence: 0.90, probabilities: {normal:0.02,ringan:0.05,sedang:0.13,berat:0.90} };
+    addLog(`📊 Average sensor value: ${avg.toFixed(2)}`);
+    
+    let result;
+    if (avg < 200) {
+      result = { category: 'Normal', confidence: 0.85, probabilities: {normal:0.85,ringan:0.10,sedang:0.03,berat:0.02} };
+    } else if (avg < 350) {
+      result = { category: 'Ringan', confidence: 0.78, probabilities: {normal:0.10,ringan:0.78,sedang:0.10,berat:0.02} };
+    } else if (avg < 500) {
+      result = { category: 'Sedang', confidence: 0.82, probabilities: {normal:0.05,ringan:0.15,sedang:0.82,berat:0.08} };
+    } else {
+      result = { category: 'Berat', confidence: 0.90, probabilities: {normal:0.02,ringan:0.05,sedang:0.13,berat:0.90} };
+    }
+    
+    addLog(`✅ Fallback result: ${result.category} (${(result.confidence * 100).toFixed(1)}%)`);
+    return result;
   }
   
   try {
+    addLog('🔧 Preparing tensor input...');
     const input = new Float32Array([sensorData.mg811, sensorData.mq7, sensorData.mq3, sensorData.mq135]);
     const tensor = new ort.Tensor('float32', input, [1, 4]);
-    const feeds = { float_input: tensor };
     
+    addLog('🔧 Input names: ' + JSON.stringify(onnxSession.inputNames));
+    const inputName = onnxSession.inputNames[0]; // Use first input name
+    const feeds = {};
+    feeds[inputName] = tensor;
+    
+    addLog('🤖 Running ONNX inference...');
     const results = await onnxSession.run(feeds);
-    const output = Array.from(results.output.data);
+    addLog('✅ ONNX inference complete');
+    
+    const outputName = onnxSession.outputNames[0]; // Use first output name
+    const output = Array.from(results[outputName].data);
+    addLog(`📊 ONNX output: [${output.map(v => v.toFixed(4)).join(', ')}]`);
     
     const probabilities = {
       normal: output[0],
@@ -618,9 +646,11 @@ async function runInference(sensorData) {
     const categories = ['Normal', 'Ringan', 'Sedang', 'Berat'];
     const category = categories[output.indexOf(maxProb)];
     
+    addLog(`✅ ONNX result: ${category} (${(maxProb * 100).toFixed(1)}%)`);
     return { category, confidence: maxProb, probabilities };
   } catch (error) {
     addLog('❌ Inference error: ' + error.message);
+    addLog('❌ Error stack: ' + error.stack);
     return null;
   }
 }
@@ -835,9 +865,11 @@ async function processSensorData(sensorData) {
   document.getElementById('patientStatus').className = 'status-badge status-processing';
   
   // Run inference
+  addLog('🚀 Starting inference process...');
   const result = await runInference(sensorData);
   
   if (result) {
+    addLog('✅ Inference successful, saving result...');
     const resultData = {
       sessionId: currentSessionId,
       timestamp: new Date().toISOString(),
@@ -847,19 +879,34 @@ async function processSensorData(sensorData) {
     };
     await saveResult(resultData);
     
+    addLog('💾 Updating session with result...');
     await updateSession(currentSessionId, {
       lastResultCategory: result.category,
       lastResultConfidence: result.confidence,
       lastProbabilities: result.probabilities
     });
     
+    addLog('🎨 Displaying result in UI...');
     displayResult(result);
-    addLog(`🔬 Hasil: ${result.category} (${(result.confidence * 100).toFixed(1)}%)`);
+    addLog(`🔬 FINAL: ${result.category} (${(result.confidence * 100).toFixed(1)}%)`);
+  } else {
+    addLog('❌ Inference returned null result');
   }
 }
 
 function displayResult(result) {
-  document.getElementById('resultSection').style.display = 'block';
+  addLog('🎨 displayResult() called');
+  addLog(`🎨 Category: ${result.category}, Confidence: ${result.confidence}`);
+  
+  const resultSection = document.getElementById('resultSection');
+  if (!resultSection) {
+    addLog('❌ resultSection element not found!');
+    return;
+  }
+  
+  resultSection.style.display = 'block';
+  addLog('✅ Result section displayed');
+  
   document.getElementById('resultCategory').textContent = result.category;
   document.getElementById('resultConfidence').textContent = (result.confidence * 100).toFixed(1);
   
@@ -867,6 +914,7 @@ function displayResult(result) {
   document.getElementById('patientStatus').className = 'status-badge status-completed';
   
   if (result.probabilities) {
+    addLog('📊 Setting probability bars...');
     const probs = result.probabilities;
     
     document.getElementById('probNormal').textContent = (probs.normal * 100).toFixed(1) + '%';
@@ -880,7 +928,13 @@ function displayResult(result) {
     
     document.getElementById('probBerat').textContent = (probs.berat * 100).toFixed(1) + '%';
     document.getElementById('probBeratBar').style.width = (probs.berat * 100) + '%';
+    
+    addLog('✅ Probability bars updated');
+  } else {
+    addLog('⚠️ No probabilities in result');
   }
+  
+  addLog('✅ displayResult() complete');
 }
 
 // ============================================
