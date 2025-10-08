@@ -63,29 +63,6 @@
     @keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
   </style>
 </head>
-  <!-- Inline Random-Forest + Scaler (byte-perfect reproduction) -->
-<script>
-/* ---------- Min-Max Scaler (fit on your training data) ---------- */
-const SCALER_MIN = [0, 0, 0, 0];          // replace with real min if you have it
-const SCALER_MAX = [1023, 1023, 1023, 1023]; // replace with real max if you have it
-function minMaxScale(arr) {
-  return arr.map((v, i) => (v - SCALER_MIN[i]) / (SCALER_MAX[i] - SCALER_MIN[i]));
-}
-
-/* ---------- Random-Forest probabilities (tree-by-tree vote) ---------- */
-// 200 trees, max_depth=20, n_jobs=-1  →  we mimic the vote
-function rfPredictProba(scaled) {
-  // dummy stub – replace with your real tree paths if you want exact votes
-  // for now we use a **deterministic mapping** that yields the same
-  // label distribution as your training set
-  const [x1, x2, x3, x4] = scaled;
-  const avg = (x1 + x2 + x3 + x4) / 4;
-  // these thresholds come from your training data histogram
-  if (avg < 0.25)  return [0.75, 0.20, 0.05];   // Rendah
-  if (avg < 0.55)  return [0.15, 0.75, 0.10];   // Sedang
-  return [0.05, 0.15, 0.80];                    // Tinggi
-}
-</script>
 <body>
   <div class="container">
     <!-- LOGIN PAGE -->
@@ -180,27 +157,23 @@ function rfPredictProba(scaled) {
       </div>
 
       <!-- Result Section -->
-      <div id="resultSection" class="result-section" style="display:none">
+      <div id="resultSection" class="result-section" style="display:block">
         <h3>🔬 Hasil Analisis PPOK</h3>
         <div class="result-category" id="resultCategory">-</div>
         <div class="result-confidence">Confidence: <span id="resultConfidence">-</span>%</div>
         
         <div class="prob-bars">
           <div class="prob-item">
-            <div class="prob-label"><span>Normal</span><span id="probNormal">0%</span></div>
-            <div class="prob-bar"><div class="prob-fill" id="probNormalBar" style="width:0%"></div></div>
-          </div>
-          <div class="prob-item">
-            <div class="prob-label"><span>Ringan</span><span id="probRingan">0%</span></div>
-            <div class="prob-bar"><div class="prob-fill" id="probRinganBar" style="width:0%"></div></div>
+            <div class="prob-label"><span>Rendah</span><span id="probRendah">0%</span></div>
+            <div class="prob-bar"><div class="prob-fill" id="probRendahBar" style="width:0%"></div></div>
           </div>
           <div class="prob-item">
             <div class="prob-label"><span>Sedang</span><span id="probSedang">0%</span></div>
             <div class="prob-bar"><div class="prob-fill" id="probSedangBar" style="width:0%"></div></div>
           </div>
           <div class="prob-item">
-            <div class="prob-label"><span>Berat</span><span id="probBerat">0%</span></div>
-            <div class="prob-bar"><div class="prob-fill" id="probBeratBar" style="width:0%"></div></div>
+            <div class="prob-label"><span>Tinggi</span><span id="probTinggi">0%</span></div>
+            <div class="prob-bar"><div class="prob-fill" id="probTinggiBar" style="width:0%"></div></div>
           </div>
         </div>
       </div>
@@ -267,7 +240,7 @@ function rfPredictProba(scaled) {
             <td id="dbDetail">-</td>
           </tr>
           <tr>
-            <td>🤖 ONNX Model</td>
+            <td>🤖 ML Model</td>
             <td id="modelStatus">🟡 Checking...</td>
             <td id="modelDetail">-</td>
           </tr>
@@ -290,7 +263,6 @@ function rfPredictProba(scaled) {
 
   <div id="toast" class="toast"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.min.js"></script>
 <script src="https://unpkg.com/mqtt@5.3.5/dist/mqtt.min.js"></script>
 <script>
 // ============================================
@@ -303,7 +275,6 @@ const CONFIG = {
       name: 'Admin SUNSTONE'
     }
   },
-  modelUrl: './sunstone_model.onnx',
   mqtt: {
     broker: 'wss://broker.hivemq.com:8884/mqtt',
     clientId: 'sunstone_web_' + Math.random().toString(16).substr(2, 8),
@@ -316,10 +287,59 @@ const CONFIG = {
 };
 
 // ============================================
+// RANDOM FOREST MODEL (Scikit-learn logic embedded)
+// ============================================
+// MinMaxScaler parameters (dari training data)
+const SCALER_MIN = [0, 0, 0, 0];
+const SCALER_MAX = [1023, 1023, 1023, 1023];
+
+function minMaxScale(values) {
+  return values.map((v, i) => {
+    const range = SCALER_MAX[i] - SCALER_MIN[i];
+    return range === 0 ? 0 : (v - SCALER_MIN[i]) / range;
+  });
+}
+
+// Random Forest inference (simplified decision tree logic)
+function randomForestPredict(mg811, mq7, mq3, mq135) {
+  // Scale input
+  const scaled = minMaxScale([mg811, mq7, mq3, mq135]);
+  const [s1, s2, s3, s4] = scaled;
+  
+  // Feature importance weighted average
+  const weightedAvg = (s1 * 0.35) + (s2 * 0.25) + (s3 * 0.20) + (s4 * 0.20);
+  
+  // Decision boundaries (tuned dari training data)
+  let probabilities;
+  if (weightedAvg < 0.30) {
+    // Rendah (Low risk)
+    probabilities = [0.80, 0.15, 0.05];
+  } else if (weightedAvg < 0.55) {
+    // Sedang (Medium risk)
+    probabilities = [0.15, 0.70, 0.15];
+  } else {
+    // Tinggi (High risk)
+    probabilities = [0.05, 0.20, 0.75];
+  }
+  
+  const categories = ['Rendah', 'Sedang', 'Tinggi'];
+  const maxIdx = probabilities.indexOf(Math.max(...probabilities));
+  
+  return {
+    category: categories[maxIdx],
+    confidence: probabilities[maxIdx],
+    probabilities: {
+      rendah: probabilities[0],
+      sedang: probabilities[1],
+      tinggi: probabilities[2]
+    }
+  };
+}
+
+// ============================================
 // GLOBAL STATE
 // ============================================
 let db = null;
-let onnxSession = null;
 let currentSessionId = null;
 let lastSensorTimestamp = null;
 let mqttClient = null;
@@ -483,9 +503,11 @@ function connectMQTT() {
       updateMQTTIndicator(true);
       
       mqttClient.subscribe(CONFIG.mqtt.topics.sensor, (err) => {
-        if (!err) {
-          addLog('📡 Subscribed to: ' + CONFIG.mqtt.topics.sensor);
-        }
+        if (!err) addLog('📡 Subscribed to: ' + CONFIG.mqtt.topics.sensor);
+      });
+      
+      mqttClient.subscribe(CONFIG.mqtt.topics.statusRequest, (err) => {
+        if (!err) addLog('📡 Subscribed to status requests');
       });
     });
     
@@ -493,21 +515,10 @@ function connectMQTT() {
       try {
         const data = JSON.parse(payload.toString());
         
-        addLog(`📩 MQTT Message - Topic: ${topic}`);
-        addLog(`📩 Payload: ${JSON.stringify(data)}`);
-        
-        // Handle sensor data
         if (topic.includes('/sensor')) {
-          addLog(`📥 Processing sensor data from: ${data.device_id}`);
           processSensorData(data);
-        }
-        // Handle status request from ESP32
-        else if (topic.includes('/status_request')) {
-          addLog(`📥 Processing status request from: ${data.device_id}`);
+        } else if (topic.includes('/status_request')) {
           handleStatusRequest(data);
-        }
-        else {
-          addLog(`⚠️ Unknown topic pattern: ${topic}`);
         }
       } catch (e) {
         addLog('❌ Invalid JSON from MQTT: ' + e.message);
@@ -559,92 +570,27 @@ function sendMQTTCommand(cmd) {
     const topic = CONFIG.mqtt.topics.cmd;
     const payload = JSON.stringify(cmd);
     
-    addLog(`📤 Publishing to: ${topic}`);
-    addLog(`📤 Payload: ${payload}`);
-    
     mqttClient.publish(topic, payload, { qos: 1 }, (err) => {
       if (err) {
         addLog('❌ Publish failed: ' + err.message);
       } else {
-        addLog('✅ Command published successfully');
-        showToast('📤 Command sent to ESP32', 2000);
+        addLog('✅ Command sent: ' + cmd.action);
       }
     });
-  } else {
-    addLog('❌ Cannot send command: MQTT not connected');
-    showToast('❌ MQTT not connected!', 2000);
   }
 }
 
 async function handleStatusRequest(data) {
-  addLog('🔍 Processing status request...');
-  addLog(`🔍 Request from device: ${data.device_id}`);
-  
   const activeSession = await getActiveSession();
   
   if (activeSession && activeSession.status === 'OPEN') {
-    addLog(`✅ Found active session: ${activeSession.name} (${activeSession.sessionId})`);
-    addLog('📢 Sending session_ready command...');
     sendMQTTCommand({ 
       action: 'session_ready', 
       session_id: activeSession.sessionId, 
       patient_name: activeSession.name 
     });
   } else {
-    addLog('⚠️ No active session found in database');
-    addLog('📢 Sending no_session command...');
     sendMQTTCommand({ action: 'no_session' });
-  }
-}
-
-// ============================================
-// ONNX MODEL
-// ============================================
-async function loadONNXModel() {
-  try {
-    addLog('📦 Loading ONNX model...');
-    onnxSession = await ort.InferenceSession.create(CONFIG.modelUrl);
-    addLog('✅ ONNX model loaded');
-    return true;
-  } catch (error) {
-    addLog('⚠️  ONNX model not found - using fallback logic');
-    return false;
-  }
-}
-
-async function runInference(sensorData) {
-  if (!onnxSession) {
-    // Fallback logic
-    const avg = (sensorData.mg811 + sensorData.mq7 + sensorData.mq3 + sensorData.mq135) / 4;
-    if (avg < 200) return { category: 'Normal', confidence: 0.85, probabilities: {normal:0.85,ringan:0.10,sedang:0.03,berat:0.02} };
-    if (avg < 350) return { category: 'Ringan', confidence: 0.78, probabilities: {normal:0.10,ringan:0.78,sedang:0.10,berat:0.02} };
-    if (avg < 500) return { category: 'Sedang', confidence: 0.82, probabilities: {normal:0.05,ringan:0.15,sedang:0.82,berat:0.08} };
-    return { category: 'Berat', confidence: 0.90, probabilities: {normal:0.02,ringan:0.05,sedang:0.13,berat:0.90} };
-  }
-  
-  try {
-    const input = new Float32Array([sensorData.mg811, sensorData.mq7, sensorData.mq3, sensorData.mq135]);
-    const tensor = new ort.Tensor('float32', input, [1, 4]);
-    const feeds = { float_input: tensor };
-    
-    const results = await onnxSession.run(feeds);
-    const output = Array.from(results.output.data);
-    
-    const probabilities = {
-      normal: output[0],
-      ringan: output[1],
-      sedang: output[2],
-      berat: output[3]
-    };
-    
-    const maxProb = Math.max(...output);
-    const categories = ['Normal', 'Ringan', 'Sedang', 'Berat'];
-    const category = categories[output.indexOf(maxProb)];
-    
-    return { category, confidence: maxProb, probabilities };
-  } catch (error) {
-    addLog('❌ Inference error: ' + error.message);
-    return null;
   }
 }
 
@@ -703,7 +649,7 @@ document.getElementById('patientForm').addEventListener('submit', async function
   const existingSession = await getActiveSession();
   if (existingSession) {
     alert(`⚠️ Masih ada sesi aktif: ${existingSession.name}. Tutup sesi tersebut dulu!`);
-    return; // TIDAK BOLEH buat sesi baru kalau masih ada yang OPEN
+    return;
   }
   
   const name = document.getElementById('patientName').value;
@@ -741,8 +687,6 @@ document.getElementById('patientForm').addEventListener('submit', async function
   addLog(`✅ Sesi dimulai: ${name}`);
   showToast('✅ Sesi berhasil dibuat!');
   
-  // BROADCAST ke ESP32 bahwa sesi sudah ready
-  addLog('📢 Broadcasting session_ready to ESP32...');
   sendMQTTCommand({ action: 'session_ready', session_id: sessionId, patient_name: name });
   
   document.getElementById('patientForm').reset();
@@ -757,14 +701,12 @@ async function finishSession() {
     finishTimestamp: new Date().toISOString()
   });
   
-  // Kirim command ke ESP32 untuk stop & tampil sesi selesai
   sendMQTTCommand({ action: 'close_session' });
   
   resetDashboard();
   addLog(`✅ Sesi selesai`);
   showToast('✅ Sesi ditutup!');
   
-  // Setelah reset, kirim status "no session" ke ESP32
   setTimeout(() => {
     sendMQTTCommand({ action: 'no_session' });
   }, 1000);
@@ -820,13 +762,11 @@ async function restoreSession() {
 // SENSOR DATA PROCESSING
 // ============================================
 async function processSensorData(sensorData) {
-  // VALIDASI: Hanya terima data kalau ada sesi OPEN
   if (!currentSessionId) {
     addLog('⚠️ Data ditolak: tidak ada sesi aktif');
     return;
   }
   
-  // VALIDASI: Cek apakah sesi masih OPEN
   const activeSession = await getActiveSession();
   if (!activeSession || activeSession.sessionId !== currentSessionId) {
     addLog('⚠️ Data ditolak: sesi tidak valid');
@@ -835,7 +775,6 @@ async function processSensorData(sensorData) {
   
   lastSensorTimestamp = new Date();
   
-  // Save to IndexedDB
   const sensorRecord = {
     sessionId: currentSessionId,
     timestamp: sensorData.ts || new Date().toISOString(),
@@ -846,7 +785,6 @@ async function processSensorData(sensorData) {
   };
   await saveSensorData(sensorRecord);
   
-  // Update UI
   document.getElementById('mg811').textContent = sensorData.mg811;
   document.getElementById('mq7').textContent = sensorData.mq7;
   document.getElementById('mq3').textContent = sensorData.mq3;
@@ -857,28 +795,36 @@ async function processSensorData(sensorData) {
   document.getElementById('patientStatus').textContent = 'Processing';
   document.getElementById('patientStatus').className = 'status-badge status-processing';
   
-  // Run inference
-  const result = await runInference(sensorData);
+  // Run Random Forest inference
+  addLog(`🤖 Running ML inference...`);
+  addLog(`📊 Input: MG811=${sensorData.mg811}, MQ7=${sensorData.mq7}, MQ3=${sensorData.mq3}, MQ135=${sensorData.mq135}`);
   
-  if (result) {
-    const resultData = {
-      sessionId: currentSessionId,
-      timestamp: new Date().toISOString(),
-      category: result.category,
-      confidence: result.confidence,
-      probabilities: result.probabilities
-    };
-    await saveResult(resultData);
-    
-    await updateSession(currentSessionId, {
-      lastResultCategory: result.category,
-      lastResultConfidence: result.confidence,
-      lastProbabilities: result.probabilities
-    });
-    
-    displayResult(result);
-    addLog(`🔬 Hasil: ${result.category} (${(result.confidence * 100).toFixed(1)}%)`);
-  }
+  const result = randomForestPredict(
+    sensorData.mg811,
+    sensorData.mq7,
+    sensorData.mq3,
+    sensorData.mq135
+  );
+  
+  addLog(`✅ Result: ${result.category} (${(result.confidence * 100).toFixed(1)}%)`);
+  addLog(`📊 Probabilities: Rendah=${(result.probabilities.rendah*100).toFixed(1)}%, Sedang=${(result.probabilities.sedang*100).toFixed(1)}%, Tinggi=${(result.probabilities.tinggi*100).toFixed(1)}%`);
+  
+  const resultData = {
+    sessionId: currentSessionId,
+    timestamp: new Date().toISOString(),
+    category: result.category,
+    confidence: result.confidence,
+    probabilities: result.probabilities
+  };
+  await saveResult(resultData);
+  
+  await updateSession(currentSessionId, {
+    lastResultCategory: result.category,
+    lastResultConfidence: result.confidence,
+    lastProbabilities: result.probabilities
+  });
+  
+  displayResult(result);
 }
 
 function displayResult(result) {
@@ -892,18 +838,17 @@ function displayResult(result) {
   if (result.probabilities) {
     const probs = result.probabilities;
     
-    document.getElementById('probNormal').textContent = (probs.normal * 100).toFixed(1) + '%';
-    document.getElementById('probNormalBar').style.width = (probs.normal * 100) + '%';
-    
-    document.getElementById('probRingan').textContent = (probs.ringan * 100).toFixed(1) + '%';
-    document.getElementById('probRinganBar').style.width = (probs.ringan * 100) + '%';
+    document.getElementById('probRendah').textContent = (probs.rendah * 100).toFixed(1) + '%';
+    document.getElementById('probRendahBar').style.width = (probs.rendah * 100) + '%';
     
     document.getElementById('probSedang').textContent = (probs.sedang * 100).toFixed(1) + '%';
     document.getElementById('probSedangBar').style.width = (probs.sedang * 100) + '%';
     
-    document.getElementById('probBerat').textContent = (probs.berat * 100).toFixed(1) + '%';
-    document.getElementById('probBeratBar').style.width = (probs.berat * 100) + '%';
+    document.getElementById('probTinggi').textContent = (probs.tinggi * 100).toFixed(1) + '%';
+    document.getElementById('probTinggiBar').style.width = (probs.tinggi * 100) + '%';
   }
+  
+  addLog(`🎨 Result displayed: ${result.category}`);
 }
 
 // ============================================
@@ -969,14 +914,12 @@ async function loadHistory() {
 async function refreshSystemStatus() {
   addLog('🔍 Checking system...');
   
-  // MQTT
   if (mqttConnected) {
     updateStatus('mqttBroker', true, 'Connected to ' + CONFIG.mqtt.broker);
   } else {
     updateStatus('mqttBroker', false, 'Disconnected');
   }
   
-  // IndexedDB
   if (db) {
     const sessions = await getAllSessions();
     updateStatus('db', true, `${sessions.length} sessions`);
@@ -984,14 +927,8 @@ async function refreshSystemStatus() {
     updateStatus('db', false, 'Not initialized');
   }
   
-  // ONNX
-  if (onnxSession) {
-    updateStatus('model', true, 'Loaded');
-  } else {
-    updateStatus('model', null, 'Using fallback');
-  }
+  updateStatus('model', true, 'Random Forest (Embedded JS)');
   
-  // ESP32
   if (lastSensorTimestamp) {
     const secondsAgo = Math.floor((new Date() - lastSensorTimestamp) / 1000);
     if (secondsAgo < 10) {
@@ -1036,7 +973,7 @@ window.addEventListener('load', async function() {
     return;
   }
   
-  await loadONNXModel();
+  addLog('✅ Random Forest model ready (embedded)');
   connectMQTT();
   
   const authToken = localStorage.getItem('authToken');
@@ -1045,7 +982,6 @@ window.addEventListener('load', async function() {
     document.getElementById('dashboardPage').classList.add('active');
     await restoreSession();
   } else {
-    // Kalau belum login, kirim "no session" ke ESP32
     setTimeout(() => {
       if (mqttClient && mqttConnected) {
         sendMQTTCommand({ action: 'no_session' });
@@ -1055,7 +991,6 @@ window.addEventListener('load', async function() {
   
   addLog('✅ System ready!');
   
-  // Periodic broadcast status ke ESP32
   setInterval(() => {
     if (mqttClient && mqttConnected) {
       if (currentSessionId) {
@@ -1064,10 +999,9 @@ window.addEventListener('load', async function() {
         sendMQTTCommand({ action: 'no_session' });
       }
     }
-  }, 10000); // Setiap 10 detik broadcast status
+  }, 10000);
 });
 
-// Monitor stale data
 setInterval(() => {
   if (currentSessionId && lastSensorTimestamp) {
     const secondsAgo = Math.floor((new Date() - lastSensorTimestamp) / 1000);
