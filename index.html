@@ -286,7 +286,8 @@ const CONFIG = {
     clientId: 'sunstone_web_' + Math.random().toString(16).substr(2, 8),
     topics: {
       sensor: 'sunstone/esp32/+/sensor',
-      cmd: 'sunstone/esp32/ESP01/cmd'
+      cmd: 'sunstone/esp32/ESP01/cmd',
+      statusRequest: 'sunstone/esp32/+/status_request'
     }
   }
 };
@@ -468,8 +469,17 @@ function connectMQTT() {
     mqttClient.on('message', (topic, payload) => {
       try {
         const data = JSON.parse(payload.toString());
-        addLog(`📥 Data received: ${data.device_id}`);
-        processSensorData(data);
+        
+        // Handle sensor data
+        if (topic.includes('/sensor')) {
+          addLog(`📥 Data received: ${data.device_id}`);
+          processSensorData(data);
+        }
+        // Handle status request from ESP32
+        else if (topic.includes('/status_request')) {
+          addLog(`📥 Status request from: ${data.device_id}`);
+          handleStatusRequest(data);
+        }
       } catch (e) {
         addLog('❌ Invalid JSON from MQTT');
       }
@@ -517,8 +527,30 @@ function updateMQTTIndicator(status) {
 
 function sendMQTTCommand(cmd) {
   if (mqttClient && mqttConnected) {
-    mqttClient.publish(CONFIG.mqtt.topics.cmd, JSON.stringify(cmd));
+    mqttClient.publish(CONFIG.mqtt.topics.cmd, JSON.stringify(cmd), { qos: 1 }); // QoS 1 untuk lebih reliable
     addLog('📤 Command sent: ' + JSON.stringify(cmd));
+    showToast('📤 Command sent to ESP32', 2000);
+  } else {
+    addLog('❌ Cannot send command: MQTT not connected');
+    showToast('❌ MQTT not connected!', 2000);
+  }
+}
+
+async function handleStatusRequest(data) {
+  addLog('🔍 Checking session status for response...');
+  
+  const activeSession = await getActiveSession();
+  
+  if (activeSession && activeSession.status === 'OPEN') {
+    addLog(`📢 Responding: Session ACTIVE (${activeSession.name})`);
+    sendMQTTCommand({ 
+      action: 'session_ready', 
+      session_id: activeSession.sessionId, 
+      patient_name: activeSession.name 
+    });
+  } else {
+    addLog('📢 Responding: NO active session');
+    sendMQTTCommand({ action: 'no_session' });
   }
 }
 
@@ -666,6 +698,10 @@ document.getElementById('patientForm').addEventListener('submit', async function
   addLog(`✅ Sesi dimulai: ${name}`);
   showToast('✅ Sesi berhasil dibuat!');
   
+  // BROADCAST ke ESP32 bahwa sesi sudah ready
+  addLog('📢 Broadcasting session_ready to ESP32...');
+  sendMQTTCommand({ action: 'session_ready', session_id: sessionId, patient_name: name });
+  
   document.getElementById('patientForm').reset();
 });
 
@@ -678,11 +714,17 @@ async function finishSession() {
     finishTimestamp: new Date().toISOString()
   });
   
+  // Kirim command ke ESP32 untuk stop & tampil sesi selesai
   sendMQTTCommand({ action: 'close_session' });
   
   resetDashboard();
   addLog(`✅ Sesi selesai`);
   showToast('✅ Sesi ditutup!');
+  
+  // Setelah reset, kirim status "no session" ke ESP32
+  setTimeout(() => {
+    sendMQTTCommand({ action: 'no_session' });
+  }, 1000);
 }
 
 function resetDashboard() {
@@ -735,7 +777,18 @@ async function restoreSession() {
 // SENSOR DATA PROCESSING
 // ============================================
 async function processSensorData(sensorData) {
-  if (!currentSessionId) return;
+  // VALIDASI: Hanya terima data kalau ada sesi OPEN
+  if (!currentSessionId) {
+    addLog('⚠️ Data ditolak: tidak ada sesi aktif');
+    return;
+  }
+  
+  // VALIDASI: Cek apakah sesi masih OPEN
+  const activeSession = await getActiveSession();
+  if (!activeSession || activeSession.sessionId !== currentSessionId) {
+    addLog('⚠️ Data ditolak: sesi tidak valid');
+    return;
+  }
   
   lastSensorTimestamp = new Date();
   
@@ -948,9 +1001,27 @@ window.addEventListener('load', async function() {
     document.getElementById('loginPage').classList.remove('active');
     document.getElementById('dashboardPage').classList.add('active');
     await restoreSession();
+  } else {
+    // Kalau belum login, kirim "no session" ke ESP32
+    setTimeout(() => {
+      if (mqttClient && mqttConnected) {
+        sendMQTTCommand({ action: 'no_session' });
+      }
+    }, 3000);
   }
   
   addLog('✅ System ready!');
+  
+  // Periodic broadcast status ke ESP32
+  setInterval(() => {
+    if (mqttClient && mqttConnected) {
+      if (currentSessionId) {
+        sendMQTTCommand({ action: 'session_active', session_id: currentSessionId });
+      } else {
+        sendMQTTCommand({ action: 'no_session' });
+      }
+    }
+  }, 10000); // Setiap 10 detik broadcast status
 });
 
 // Monitor stale data
