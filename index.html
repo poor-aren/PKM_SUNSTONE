@@ -302,10 +302,11 @@ let mqttClient = null;
 let mqttConnected = false;
 
 // === AWS HISTORY SYNC CONFIG (History only) ===
-  const AWS_HISTORY = {
-  baseUrl: '<<API_ENDPOINT_HTTP_API_KAMU>>', // contoh: https://abc123.execute-api.ap-southeast-1.amazonaws.com
-  apiKey: 'SUNSTONE_API_KEY' // sama dg yang di Lambda env
+const AWS_HISTORY = {
+  baseUrl: 'https://c957hybvo3.execute-api.ap-southeast-1.amazonaws.com',
+  apiKey: '' // kosong karena API Gateway tidak pakai key
 };
+
 
 
 // ============================================
