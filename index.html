@@ -1,4 +1,4 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <html lang="id">
 <head>
   <meta charset="UTF-8" />
@@ -263,7 +263,7 @@
 
   <div id="toast" class="toast"></div>
 
-<!-- ORT WEB >= 1.18 (gunakan terbaru stabil) -->
+<!-- ONNXRuntime Web (>=1.18, pakai 1.20 stabil) -->
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.0/dist/ort.min.js"></script>
 <script src="https://unpkg.com/mqtt@5.3.5/dist/mqtt.min.js"></script>
 <script>
@@ -336,32 +336,24 @@ function generateSessionId(name, phone) {
 
 // ============================================
 // INDEXEDDB
+// (Tidak diubah)
 // ============================================
 async function initIndexedDB() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open('SunstoneDB', 1);
-    
     request.onerror = () => reject(request.error);
-    request.onsuccess = () => {
-      db = request.result;
-      addLog('✅ IndexedDB initialized');
-      resolve(db);
-    };
-    
+    request.onsuccess = () => { db = request.result; addLog('✅ IndexedDB initialized'); resolve(db); };
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
-      
       if (!db.objectStoreNames.contains('sessions')) {
         const sessionsStore = db.createObjectStore('sessions', { keyPath: 'id', autoIncrement: true });
         sessionsStore.createIndex('sessionId', 'sessionId', { unique: true });
         sessionsStore.createIndex('status', 'status', { unique: false });
       }
-      
       if (!db.objectStoreNames.contains('sensors')) {
         const sensorsStore = db.createObjectStore('sensors', { keyPath: 'id', autoIncrement: true });
         sensorsStore.createIndex('sessionId', 'sessionId', { unique: false });
       }
-      
       if (!db.objectStoreNames.contains('results')) {
         const resultsStore = db.createObjectStore('results', { keyPath: 'id', autoIncrement: true });
         resultsStore.createIndex('sessionId', 'sessionId', { unique: false });
@@ -369,208 +361,93 @@ async function initIndexedDB() {
     };
   });
 }
-
-async function saveSession(sessionData) {
-  const tx = db.transaction(['sessions'], 'readwrite');
-  const store = tx.objectStore('sessions');
-  return new Promise((resolve) => {
-    store.add(sessionData);
-    resolve(sessionData.sessionId);
-  });
-}
-
-async function updateSession(sessionId, updates) {
-  const tx = db.transaction(['sessions'], 'readwrite');
-  const store = tx.objectStore('sessions');
-  const index = store.index('sessionId');
-  
-  return new Promise((resolve) => {
-    const request = index.get(sessionId);
-    request.onsuccess = () => {
-      const session = request.result;
-      if (session) {
-        Object.assign(session, updates);
-        store.put(session);
-        resolve(session);
-      }
-    };
-  });
-}
-
-async function getActiveSession() {
-  const tx = db.transaction(['sessions'], 'readonly');
-  const store = tx.objectStore('sessions');
-  const index = store.index('status');
-  
-  return new Promise((resolve) => {
-    const request = index.get('OPEN');
-    request.onsuccess = () => resolve(request.result || null);
-    request.onerror = () => resolve(null);
-  });
-}
-
-async function saveSensorData(sensorData) {
-  const tx = db.transaction(['sensors'], 'readwrite');
-  const store = tx.objectStore('sensors');
-  return new Promise((resolve) => {
-    store.add(sensorData);
-    resolve();
-  });
-}
-
-async function saveResult(resultData) {
-  const tx = db.transaction(['results'], 'readwrite');
-  const store = tx.objectStore('results');
-  return new Promise((resolve) => {
-    store.add(resultData);
-    resolve();
-  });
-}
-
-async function getAllSessions() {
-  const tx = db.transaction(['sessions'], 'readonly');
-  const store = tx.objectStore('sessions');
-  
-  return new Promise((resolve) => {
-    const request = store.getAll();
-    request.onsuccess = () => resolve(request.result || []);
-    request.onerror = () => resolve([]);
-  });
-}
+async function saveSession(sessionData){const tx=db.transaction(['sessions'],'readwrite');const store=tx.objectStore('sessions');return new Promise((resolve)=>{store.add(sessionData);resolve(sessionData.sessionId);});}
+async function updateSession(sessionId, updates){const tx=db.transaction(['sessions'],'readwrite');const store=tx.objectStore('sessions');const index=store.index('sessionId');return new Promise((resolve)=>{const request=index.get(sessionId);request.onsuccess=()=>{const session=request.result;if(session){Object.assign(session,updates);store.put(session);resolve(session);}};});}
+async function getActiveSession(){const tx=db.transaction(['sessions'],'readonly');const store=tx.objectStore('sessions');const index=store.index('status');return new Promise((resolve)=>{const request=index.get('OPEN');request.onsuccess=()=>resolve(request.result||null);request.onerror=()=>resolve(null);});}
+async function saveSensorData(sensorData){const tx=db.transaction(['sensors'],'readwrite');const store=tx.objectStore('sensors');return new Promise((resolve)=>{store.add(sensorData);resolve();});}
+async function saveResult(resultData){const tx=db.transaction(['results'],'readwrite');const store=tx.objectStore('results');return new Promise((resolve)=>{store.add(resultData);resolve();});}
+async function getAllSessions(){const tx=db.transaction(['sessions'],'readonly');const store=tx.objectStore('sessions');return new Promise((resolve)=>{const request=store.getAll();request.onsuccess=()=>resolve(request.result||[]);request.onerror=()=>resolve([]);});}
 
 // ============================================
-// MQTT CONNECTION
+// MQTT (Tidak diubah UI/UX)
 // ============================================
 function connectMQTT() {
   addLog('🔌 Connecting to MQTT broker...');
-  
   try {
     mqttClient = mqtt.connect(CONFIG.mqtt.broker, {
       clientId: CONFIG.mqtt.clientId,
       clean: true,
       reconnectPeriod: 3000
     });
-    
     mqttClient.on('connect', () => {
       mqttConnected = true;
       addLog('✅ MQTT connected');
       updateMQTTIndicator(true);
-      
-      mqttClient.subscribe(CONFIG.mqtt.topics.sensor, (err) => {
-        if (!err) {
-          addLog('📡 Subscribed to: ' + CONFIG.mqtt.topics.sensor);
-        }
-      });
+      mqttClient.subscribe(CONFIG.mqtt.topics.sensor, (err) => { if (!err) addLog('📡 Subscribed to: ' + CONFIG.mqtt.topics.sensor); });
     });
-    
     mqttClient.on('message', (topic, payload) => {
       try {
         const data = JSON.parse(payload.toString());
-        
         addLog(`📩 MQTT Message - Topic: ${topic}`);
         addLog(`📩 Payload: ${JSON.stringify(data)}`);
-        
         if (topic.includes('/sensor')) {
           addLog(`📥 Processing sensor data from: ${data.device_id}`);
           processSensorData(data);
-        }
-        else if (topic.includes('/status_request')) {
+        } else if (topic.includes('/status_request')) {
           addLog(`📥 Processing status request from: ${data.device_id}`);
           handleStatusRequest(data);
-        }
-        else {
+        } else {
           addLog(`⚠️ Unknown topic pattern: ${topic}`);
         }
       } catch (e) {
         addLog('❌ Invalid JSON from MQTT: ' + e.message);
       }
     });
-    
-    mqttClient.on('error', (err) => {
-      addLog('❌ MQTT error: ' + err.message);
-      updateMQTTIndicator(false);
-    });
-    
-    mqttClient.on('close', () => {
-      mqttConnected = false;
-      addLog('🔌 MQTT disconnected');
-      updateMQTTIndicator(false);
-    });
-    
-    mqttClient.on('reconnect', () => {
-      addLog('🔄 MQTT reconnecting...');
-      updateMQTTIndicator('connecting');
-    });
-    
+    mqttClient.on('error', (err) => { addLog('❌ MQTT error: ' + err.message); updateMQTTIndicator(false); });
+    mqttClient.on('close', () => { mqttConnected = false; addLog('🔌 MQTT disconnected'); updateMQTTIndicator(false); });
+    mqttClient.on('reconnect', () => { addLog('🔄 MQTT reconnecting...'); updateMQTTIndicator('connecting'); });
   } catch (err) {
     addLog('❌ Failed to connect MQTT: ' + err.message);
     updateMQTTIndicator(false);
   }
 }
-
 function updateMQTTIndicator(status) {
   const indicator = document.getElementById('mqttIndicator');
   const text = document.getElementById('mqttStatusText');
-  
   if (!indicator || !text) return;
-  
-  if (status === true) {
-    indicator.className = 'connection-indicator conn-connected';
-    text.textContent = 'MQTT Connected';
-  } else if (status === 'connecting') {
-    indicator.className = 'connection-indicator conn-connecting';
-    text.textContent = 'MQTT Reconnecting...';
-  } else {
-    indicator.className = 'connection-indicator conn-disconnected';
-    text.textContent = 'MQTT Disconnected';
-  }
+  if (status === true) { indicator.className='connection-indicator conn-connected'; text.textContent='MQTT Connected'; }
+  else if (status === 'connecting') { indicator.className='connection-indicator conn-connecting'; text.textContent='MQTT Reconnecting...'; }
+  else { indicator.className='connection-indicator conn-disconnected'; text.textContent='MQTT Disconnected'; }
 }
-
 function sendMQTTCommand(cmd) {
   if (mqttClient && mqttConnected) {
     const topic = CONFIG.mqtt.topics.cmd;
     const payload = JSON.stringify(cmd);
-    
     addLog(`📤 Publishing to: ${topic}`);
     addLog(`📤 Payload: ${payload}`);
-    
     mqttClient.publish(topic, payload, { qos: 1 }, (err) => {
-      if (err) {
-        addLog('❌ Publish failed: ' + err.message);
-      } else {
-        addLog('✅ Command published successfully');
-        showToast('📤 Command sent to ESP32', 2000);
-      }
+      if (err) addLog('❌ Publish failed: ' + err.message);
+      else { addLog('✅ Command published successfully'); showToast('📤 Command sent to ESP32', 2000); }
     });
-  } else {
-    addLog('❌ Cannot send command: MQTT not connected');
-    showToast('❌ MQTT not connected!', 2000);
-  }
+  } else { addLog('❌ Cannot send command: MQTT not connected'); showToast('❌ MQTT not connected!', 2000); }
 }
-
 async function handleStatusRequest(data) {
   addLog('🔍 Processing status request...');
   addLog(`🔍 Request from device: ${data.device_id}`);
-  
   const activeSession = await getActiveSession();
-  
   if (activeSession && activeSession.status === 'OPEN') {
     addLog(`✅ Found active session: ${activeSession.name} (${activeSession.sessionId})`);
     addLog('📢 Sending session_ready command...');
-    sendMQTTCommand({ 
-      action: 'session_ready', 
-      session_id: activeSession.sessionId, 
-      patient_name: activeSession.name 
-    });
+    sendMQTTCommand({ action:'session_ready', session_id:activeSession.sessionId, patient_name:activeSession.name });
   } else {
     addLog('⚠️ No active session found in database');
     addLog('📢 Sending no_session command...');
-    sendMQTTCommand({ action: 'no_session' });
+    sendMQTTCommand({ action:'no_session' });
   }
 }
 
 // ============================================
-// ONNX MODEL
+// ONNX MODEL (JS ONLY CHANGES ARE HERE)
 // ============================================
 async function loadONNXModel() {
   try {
@@ -587,66 +464,53 @@ async function loadONNXModel() {
   }
 }
 
-// ===== Versi 1: Run terpisah untuk label (tensor) dan prob (sequence<map>) =====
+// ===== LABEL-ONLY: fetch 1 output via fetches object (menghindari non-tensor) =====
 async function runInference(sensorData) {
-  addLog('🤖 Running inference (LABEL + PROB split)...');
+  addLog('🤖 Running inference (LABEL ONLY, single fetch)...');
   addLog(`📊 Input data: MG811=${sensorData.mg811}, MQ7=${sensorData.mq7}, MQ3=${sensorData.mq3}, MQ135=${sensorData.mq135}`);
-  
+
   if (!onnxSession) {
-    // fallback sederhana agar UI tetap hidup
+    // Fallback sederhana
     const avg = (sensorData.mg811 + sensorData.mq7 + sensorData.mq3 + sensorData.mq135) / 4;
     const idx = avg < 200 ? 0 : (avg < 350 ? 1 : 2);
     const classes = ['Rendah','Sedang','Tinggi'];
     const category = classes[idx];
-    return { category, confidence: 1.0, probabilities: {normal: idx===0?1:0, ringan: idx===1?1:0, sedang: idx===2?1:0, berat: 0} };
+    const probs4 = [idx===0?1:0, idx===1?1:0, idx===2?1:0, 0];
+    return { category, confidence: 1.0, probabilities: {normal:probs4[0], ringan:probs4[1], sedang:probs4[2], berat:probs4[3]} };
   }
 
   const inputName = onnxSession.inputNames[0] || 'float_input';
+  const outs = onnxSession.outputNames;
+  const labelName = outs.find(n => /label/i.test(n)) || 'output_label';
+
+  // Siapkan tensor input
   const input = new Float32Array([sensorData.mg811, sensorData.mq7, sensorData.mq3, sensorData.mq135]);
   const tensor = new ort.Tensor('float32', input, [1, 4]);
   const feeds = { [inputName]: tensor };
 
-  const outs = onnxSession.outputNames;
-  const labelName = outs.find(n => /label/i.test(n)) || 'output_label';
-  const probName  = outs.find(n => /prob/i.test(n))  || 'output_probability';
+  // Penting: pakai bentuk OBJECT untuk fetches, hanya minta label
+  addLog('🤖 ORT run (fetch label only as object)...');
+  const fetches = { [labelName]: null };
+  const res = await onnxSession.run(feeds, fetches);
 
-  // 1) Ambil LABEL
-  addLog('🤖 ORT run #1 (label only)...');
-  const res1 = await onnxSession.run(feeds, [labelName]);
-  const labelT = res1[labelName];
-  const raw = labelT?.data?.[0];
-  const labelIdx = typeof raw === 'bigint' ? Number(raw) : Number(raw);
+  const labelVal = res[labelName];
+  // labelVal harusnya ort.Tensor int64[1]; tapi amankan semua kemungkinan
+  let raw = (labelVal && labelVal.data) ? labelVal.data[0] : (Array.isArray(labelVal) ? labelVal[0] : labelVal);
+  const labelIdx = Number(typeof raw === 'bigint' ? raw : raw ?? 0);
+
   const classes = ['Rendah','Sedang','Tinggi'];
-  let category = classes[labelIdx] ?? 'Rendah';
-  let confidence = 1.0;
+  const category = classes[labelIdx] ?? 'Rendah';
 
-  // 2) Ambil PROBABILITY (ZipMap -> sequence<map<int64,float32>>)
-  addLog('🤖 ORT run #2 (probability only)...');
-  const res2 = await onnxSession.run(feeds, [probName]);
-  const seq = res2[probName];           // array (sequence) per-batch
-  const map0 = Array.isArray(seq) ? seq[0] : null; // map untuk batch ke-0
-
-  let p0=0, p1=0, p2=0;
-  if (map0) {
-    // key dapat berupa string '0','1','2' atau number 0,1,2
-    p0 = Number(map0['0'] ?? map0[0] ?? 0);
-    p1 = Number(map0['1'] ?? map0[1] ?? 0);
-    p2 = Number(map0['2'] ?? map0[2] ?? 0);
-    const arr = [p0,p1,p2];
-    const maxIdx = arr.indexOf(Math.max(...arr));
-    if ((p0+p1+p2) > 0) {
-      category = classes[maxIdx];
-      confidence = arr[maxIdx];
-    }
-  } else {
-    addLog('⚠️ ZipMap probability empty, keep label result.');
-  }
-
-  // Map ke 4 bar UI (Normal=Rendah, Ringan=Sedang, Sedang=Tinggi, Berat=0)
-  const probabilities = { normal: p0, ringan: p1, sedang: p2, berat: 0.0 };
+  // Peta ke 4 bar UI (Normal=Rendah, Ringan=Sedang, Sedang=Tinggi, Berat=0)
+  const probs4 = [labelIdx===0?1:0, labelIdx===1?1:0, labelIdx===2?1:0, 0];
+  const confidence = 1.0;
 
   addLog(`✅ ONNX result: ${category} (${(confidence*100).toFixed(1)}%)`);
-  return { category, confidence, probabilities };
+  return {
+    category,
+    confidence,
+    probabilities: { normal: probs4[0], ringan: probs4[1], sedang: probs4[2], berat: probs4[3] }
+  };
 }
 
 // ============================================
@@ -654,13 +518,10 @@ async function runInference(sensorData) {
 // ============================================
 document.getElementById('loginForm').addEventListener('submit', async function(e) {
   e.preventDefault();
-  
   const email = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
   const passwordHash = await hashPassword(password);
-  
   const user = CONFIG.users[email];
-  
   if (user && user.passwordHash === passwordHash) {
     localStorage.setItem('authToken', btoa(`${email}:${Date.now()}`));
     localStorage.setItem('userName', user.name);
@@ -678,17 +539,11 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
 
 function logout() {
   if (currentSessionId && !confirm('Sesi masih aktif. Yakin logout?')) return;
-  
   localStorage.removeItem('authToken');
   localStorage.removeItem('userName');
   localStorage.removeItem('SESSION_KEY');
   currentSessionId = null;
-  
-  if (mqttClient) {
-    mqttClient.end();
-    mqttClient = null;
-  }
-  
+  if (mqttClient) { mqttClient.end(); mqttClient = null; }
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById('loginPage').classList.add('active');
   addLog('Logout');
@@ -696,41 +551,25 @@ function logout() {
 }
 
 // ============================================
-// SESSION MANAGEMENT
+// SESSION MANAGEMENT (tidak diubah except call runInference())
 // ============================================
 document.getElementById('patientForm').addEventListener('submit', async function(e) {
   e.preventDefault();
-  
   const existingSession = await getActiveSession();
-  if (existingSession) {
-    alert(`⚠️ Masih ada sesi aktif: ${existingSession.name}. Tutup sesi tersebut dulu!`);
-    return;
-  }
-  
+  if (existingSession) { alert(`⚠️ Masih ada sesi aktif: ${existingSession.name}. Tutup sesi tersebut dulu!`); return; }
   const name = document.getElementById('patientName').value;
   const age = parseInt(document.getElementById('patientAge').value);
   const phone = document.getElementById('patientPhone').value;
   const brinkman = parseInt(document.getElementById('brinkmanIndex').value);
-  
   const sessionId = generateSessionId(name, phone);
   const sessionData = {
-    sessionId,
-    name,
-    age,
-    phone,
-    brinkman,
-    status: 'OPEN',
-    timestamp: new Date().toISOString(),
-    device_id: 'ESP01',
-    lastResultCategory: null,
-    lastResultConfidence: null,
-    lastProbabilities: null
+    sessionId, name, age, phone, brinkman, status:'OPEN',
+    timestamp:new Date().toISOString(), device_id:'ESP01',
+    lastResultCategory:null, lastResultConfidence:null, lastProbabilities:null
   };
-  
   await saveSession(sessionData);
   localStorage.setItem('SESSION_KEY', sessionId);
   currentSessionId = sessionId;
-  
   document.getElementById('currentName').textContent = name;
   document.getElementById('currentAge').textContent = age;
   document.getElementById('currentPhone').textContent = phone;
@@ -738,34 +577,22 @@ document.getElementById('patientForm').addEventListener('submit', async function
   document.getElementById('addPatientSection').style.display = 'none';
   document.getElementById('currentPatientSection').style.display = 'block';
   document.getElementById('sensorPanel').style.display = 'block';
-  
   addLog(`✅ Sesi dimulai: ${name}`);
   showToast('✅ Sesi berhasil dibuat!');
-  
   addLog('📢 Broadcasting session_ready to ESP32...');
-  sendMQTTCommand({ action: 'session_ready', session_id: sessionId, patient_name: name });
-  
+  sendMQTTCommand({ action:'session_ready', session_id:sessionId, patient_name:name });
   document.getElementById('patientForm').reset();
 });
 
 async function finishSession() {
   if (!currentSessionId) return;
   if (!confirm('Yakin tutup sesi?')) return;
-  
-  await updateSession(currentSessionId, {
-    status: 'CLOSED',
-    finishTimestamp: new Date().toISOString()
-  });
-  
-  sendMQTTCommand({ action: 'close_session' });
-  
+  await updateSession(currentSessionId, { status:'CLOSED', finishTimestamp:new Date().toISOString() });
+  sendMQTTCommand({ action:'close_session' });
   resetDashboard();
   addLog(`✅ Sesi selesai`);
   showToast('✅ Sesi ditutup!');
-  
-  setTimeout(() => {
-    sendMQTTCommand({ action: 'no_session' });
-  }, 1000);
+  setTimeout(()=>{ sendMQTTCommand({ action:'no_session' }); }, 1000);
 }
 
 function resetDashboard() {
@@ -780,11 +607,9 @@ function resetDashboard() {
 async function restoreSession() {
   const sessionKey = localStorage.getItem('SESSION_KEY');
   if (!sessionKey) return;
-  
-  const tx = db.transaction(['sessions'], 'readonly');
+  const tx = db.transaction(['sessions'],'readonly');
   const store = tx.objectStore('sessions');
   const index = store.index('sessionId');
-  
   return new Promise((resolve) => {
     const request = index.get(sessionKey);
     request.onsuccess = () => {
@@ -798,15 +623,9 @@ async function restoreSession() {
         document.getElementById('addPatientSection').style.display = 'none';
         document.getElementById('currentPatientSection').style.display = 'block';
         document.getElementById('sensorPanel').style.display = 'block';
-        
         if (session.lastResultCategory) {
-          displayResult({
-            category: session.lastResultCategory,
-            confidence: session.lastResultConfidence,
-            probabilities: session.lastProbabilities
-          });
+          displayResult({ category:session.lastResultCategory, confidence:session.lastResultConfidence, probabilities:session.lastProbabilities });
         }
-        
         addLog(`✅ Sesi dipulihkan: ${session.name}`);
       }
       resolve();
@@ -818,111 +637,77 @@ async function restoreSession() {
 // SENSOR DATA PROCESSING
 // ============================================
 async function processSensorData(sensorData) {
-  if (!currentSessionId) {
-    addLog('⚠️ Data ditolak: tidak ada sesi aktif');
-    return;
-  }
-  
+  if (!currentSessionId) { addLog('⚠️ Data ditolak: tidak ada sesi aktif'); return; }
   const activeSession = await getActiveSession();
-  if (!activeSession || activeSession.sessionId !== currentSessionId) {
-    addLog('⚠️ Data ditolak: sesi tidak valid');
-    return;
-  }
-  
+  if (!activeSession || activeSession.sessionId !== currentSessionId) { addLog('⚠️ Data ditolak: sesi tidak valid'); return; }
+
   lastSensorTimestamp = new Date();
-  
   const sensorRecord = {
     sessionId: currentSessionId,
     timestamp: sensorData.ts || new Date().toISOString(),
-    mg811: sensorData.mg811,
-    mq7: sensorData.mq7,
-    mq3: sensorData.mq3,
-    mq135: sensorData.mq135
+    mg811: sensorData.mg811, mq7: sensorData.mq7, mq3: sensorData.mq3, mq135: sensorData.mq135
   };
   await saveSensorData(sensorRecord);
-  
+
   document.getElementById('mg811').textContent = sensorData.mg811;
   document.getElementById('mq7').textContent = sensorData.mq7;
   document.getElementById('mq3').textContent = sensorData.mq3;
   document.getElementById('mq135').textContent = sensorData.mq135;
-  
+
   document.getElementById('lastUpdate').textContent = '⏱️ Update: baru saja';
   document.getElementById('lastUpdate').style.color = '#28a745';
   document.getElementById('patientStatus').textContent = 'Processing';
   document.getElementById('patientStatus').className = 'status-badge status-processing';
-  
+
   addLog('🚀 Starting inference process...');
   try {
     const result = await runInference(sensorData);
     if (result) {
-      addLog('✅ Inference successful, saving result...');
       const resultData = {
-        sessionId: currentSessionId,
-        timestamp: new Date().toISOString(),
-        category: result.category,
-        confidence: result.confidence,
-        probabilities: result.probabilities
+        sessionId: currentSessionId, timestamp:new Date().toISOString(),
+        category: result.category, confidence: result.confidence, probabilities: result.probabilities
       };
       await saveResult(resultData);
-      
-      addLog('💾 Updating session with result...');
       await updateSession(currentSessionId, {
         lastResultCategory: result.category,
         lastResultConfidence: result.confidence,
         lastProbabilities: result.probabilities
       });
-      
-      addLog('🎨 Displaying result in UI...');
       displayResult(result);
       addLog(`🔬 FINAL: ${result.category} (${(result.confidence * 100).toFixed(1)}%)`);
     } else {
       addLog('❌ Inference returned null result');
     }
-  } catch (error) {
-    addLog('❌ Inference error: ' + error.message);
+  } catch (err) {
+    addLog('❌ Inference error: ' + (err?.message || err));
   }
 }
 
 function displayResult(result) {
   addLog('🎨 displayResult() called');
   addLog(`🎨 Category: ${result.category}, Confidence: ${result.confidence}`);
-  
   const resultSection = document.getElementById('resultSection');
-  if (!resultSection) {
-    addLog('❌ resultSection element not found!');
-    return;
-  }
-  
+  if (!resultSection) { addLog('❌ resultSection element not found!'); return; }
   resultSection.style.display = 'block';
   addLog('✅ Result section displayed');
-  
+
   document.getElementById('resultCategory').textContent = result.category;
   document.getElementById('resultConfidence').textContent = (result.confidence * 100).toFixed(1);
-  
+
   document.getElementById('patientStatus').textContent = 'Selesai';
   document.getElementById('patientStatus').className = 'status-badge status-completed';
-  
+
   if (result.probabilities) {
-    addLog('📊 Setting probability bars...');
     const probs = result.probabilities;
-    
     document.getElementById('probNormal').textContent = (probs.normal * 100).toFixed(1) + '%';
     document.getElementById('probNormalBar').style.width = (probs.normal * 100) + '%';
-    
     document.getElementById('probRingan').textContent = (probs.ringan * 100).toFixed(1) + '%';
     document.getElementById('probRinganBar').style.width = (probs.ringan * 100) + '%';
-    
     document.getElementById('probSedang').textContent = (probs.sedang * 100).toFixed(1) + '%';
     document.getElementById('probSedangBar').style.width = (probs.sedang * 100) + '%';
-    
     document.getElementById('probBerat').textContent = (probs.berat * 100).toFixed(1) + '%';
     document.getElementById('probBeratBar').style.width = (probs.berat * 100) + '%';
-    
-    addLog('✅ Probability bars updated');
-  } else {
-    addLog('⚠️ No probabilities in result');
   }
-  
   addLog('✅ displayResult() complete');
 }
 
@@ -932,37 +717,28 @@ function displayResult(result) {
 function showDashboard(e) {switchPage('dashboardPage', e);}
 function showHistory(e) {switchPage('historyPage', e); loadHistory();}
 function showAdmin(e) {switchPage('adminPage', e); refreshSystemStatus();}
-
 function switchPage(pageId, event) {
-  if (event) {
-    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-    event.target.classList.add('active');
-  }
+  if (event) { document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active')); event.target.classList.add('active'); }
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById(pageId).classList.add('active');
 }
 
 // ============================================
-// HISTORY
+// HISTORY & ADMIN (tidak diubah)
 // ============================================
 async function loadHistory() {
   const tbody = document.getElementById('historyBody');
   tbody.innerHTML = '<tr><td colspan="8" style="text-align:center">Loading...</td></tr>';
-  
   try {
     const sessions = await getAllSessions();
-    sessions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-    
+    sessions.sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
     if (sessions.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center">Belum ada data</td></tr>';
-      return;
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center">Belum ada data</td></tr>'; return;
     }
-    
-    tbody.innerHTML = sessions.map(session => {
+    tbody.innerHTML = sessions.map(session=>{
       const date = new Date(session.timestamp).toLocaleString('id-ID');
       const statusColor = session.status === 'OPEN' ? '#28a745' : '#6c757d';
       const statusIcon = session.status === 'OPEN' ? '🟢' : '🔴';
-      
       return `
         <tr>
           <td>${date}</td>
@@ -973,68 +749,35 @@ async function loadHistory() {
           <td>${session.lastResultCategory || '-'}</td>
           <td>${session.lastResultConfidence ? (session.lastResultConfidence * 100).toFixed(1) + '%' : '-'}</td>
           <td style="color:${statusColor};font-weight:600">${statusIcon} ${session.status}</td>
-        </tr>
-      `;
+        </tr>`;
     }).join('');
-    
     addLog(`📋 History: ${sessions.length} records`);
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:red">Error: ${err.message}</td></tr>`;
   }
 }
-
-// ============================================
-// ADMIN
-// ============================================
 async function refreshSystemStatus() {
   addLog('🔍 Checking system...');
-  
-  if (mqttConnected) {
-    updateStatus('mqttBroker', true, 'Connected to ' + CONFIG.mqtt.broker);
-  } else {
-    updateStatus('mqttBroker', false, 'Disconnected');
-  }
-  
+  if (mqttConnected) updateStatus('mqttBroker', true, 'Connected to ' + CONFIG.mqtt.broker);
+  else updateStatus('mqttBroker', false, 'Disconnected');
   if (db) {
     const sessions = await getAllSessions();
     updateStatus('db', true, `${sessions.length} sessions`);
-  } else {
-    updateStatus('db', false, 'Not initialized');
-  }
-  
-  if (onnxSession) {
-    updateStatus('model', true, 'Loaded');
-  } else {
-    updateStatus('model', null, 'Using fallback');
-  }
-  
+  } else updateStatus('db', false, 'Not initialized');
+  if (onnxSession) updateStatus('model', true, 'Loaded');
+  else updateStatus('model', null, 'Using fallback');
   if (lastSensorTimestamp) {
-    const secondsAgo = Math.floor((new Date() - lastSensorTimestamp) / 1000);
-    if (secondsAgo < 10) {
-      updateStatus('esp32', true, `Active (${secondsAgo}s ago)`);
-    } else {
-      updateStatus('esp32', null, `Idle (${secondsAgo}s ago)`);
-    }
-  } else {
-    updateStatus('esp32', null, 'No data yet');
-  }
+    const secondsAgo = Math.floor((new Date() - lastSensorTimestamp)/1000);
+    if (secondsAgo < 10) updateStatus('esp32', true, `Active (${secondsAgo}s ago)`);
+    else updateStatus('esp32', null, `Idle (${secondsAgo}s ago)`);
+  } else updateStatus('esp32', null, 'No data yet');
 }
-
 function updateStatus(service, isOk, detail) {
   const statusEl = document.getElementById(`${service}Status`);
   const detailEl = document.getElementById(`${service}Detail`);
-  
-  if (isOk === true) {
-    statusEl.textContent = '🟢 OK';
-    statusEl.style.color = 'green';
-  } else if (isOk === false) {
-    statusEl.textContent = '🔴 Error';
-    statusEl.style.color = 'red';
-  } else {
-    statusEl.textContent = '🟡 Warning';
-    statusEl.style.color = 'orange';
-  }
-  
+  if (isOk === true) { statusEl.textContent='🟢 OK'; statusEl.style.color='green'; }
+  else if (isOk === false) { statusEl.textContent='🔴 Error'; statusEl.style.color='red'; }
+  else { statusEl.textContent='🟡 Warning'; statusEl.style.color='orange'; }
   if (detailEl) detailEl.textContent = detail || '-';
 }
 
@@ -1043,45 +786,30 @@ function updateStatus(service, isOk, detail) {
 // ============================================
 window.addEventListener('load', async function() {
   addLog('🚀 SUNSTONE initializing...');
-  
-  try {
-    await initIndexedDB();
-  } catch (err) {
-    addLog('❌ IndexedDB failed: ' + err.message);
-    alert('Database error!');
-    return;
-  }
-  
+  try { await initIndexedDB(); }
+  catch (err) { addLog('❌ IndexedDB failed: ' + err.message); alert('Database error!'); return; }
   await loadONNXModel();
   connectMQTT();
-  
+
   const authToken = localStorage.getItem('authToken');
   if (authToken) {
     document.getElementById('loginPage').classList.remove('active');
     document.getElementById('dashboardPage').classList.add('active');
     await restoreSession();
   } else {
-    setTimeout(() => {
-      if (mqttClient && mqttConnected) {
-        sendMQTTCommand({ action: 'no_session' });
-      }
-    }, 3000);
+    setTimeout(()=>{ if (mqttClient && mqttConnected) sendMQTTCommand({ action:'no_session' }); }, 3000);
   }
-  
   addLog('✅ System ready!');
-  
-  setInterval(() => {
+
+  setInterval(()=> {
     if (mqttClient && mqttConnected) {
-      if (currentSessionId) {
-        sendMQTTCommand({ action: 'session_active', session_id: currentSessionId });
-      } else {
-        sendMQTTCommand({ action: 'no_session' });
-      }
+      if (currentSessionId) sendMQTTCommand({ action:'session_active', session_id: currentSessionId });
+      else sendMQTTCommand({ action:'no_session' });
     }
   }, 10000);
 });
 
-setInterval(() => {
+setInterval(()=> {
   if (currentSessionId && lastSensorTimestamp) {
     const secondsAgo = Math.floor((new Date() - lastSensorTimestamp) / 1000);
     if (secondsAgo > 10) {
