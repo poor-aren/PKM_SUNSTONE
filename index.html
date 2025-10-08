@@ -206,8 +206,10 @@
               <th>Hasil PPOK</th>
               <th>Confidence</th>
               <th>Status</th>
+              <th>Aksi</th> <!-- TAMBAHAN -->
             </tr>
           </thead>
+
           <tbody id="historyBody">
             <tr><td colspan="8" style="text-align:center">Loading...</td></tr>
           </tbody>
@@ -298,6 +300,13 @@ let currentSessionId = null;
 let lastSensorTimestamp = null;
 let mqttClient = null;
 let mqttConnected = false;
+
+// === AWS HISTORY SYNC CONFIG (History only) ===
+  const AWS_HISTORY = {
+  baseUrl: '<<API_ENDPOINT_HTTP_API_KAMU>>', // contoh: https://abc123.execute-api.ap-southeast-1.amazonaws.com
+  apiKey: 'SUNSTONE_API_KEY' // sama dg yang di Lambda env
+};
+
 
 // ============================================
 // UTILITY FUNCTIONS
@@ -753,36 +762,149 @@ function switchPage(pageId, event) {
 // ============================================
 // HISTORY & ADMIN (tidak diubah)
 // ============================================
-async function loadHistory() {
-  const tbody = document.getElementById('historyBody');
-  tbody.innerHTML = '<tr><td colspan="8" style="text-align:center">Loading...</td></tr>';
-  try {
-    const sessions = await getAllSessions();
-    sessions.sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
-    if (sessions.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center">Belum ada data</td></tr>'; return;
+// ===== Helper: baca sensors & results untuk 1 sessionId dari IndexedDB =====
+async function getSensorsBySession(sessionId) {
+  return new Promise((resolve) => {
+    const tx = db.transaction(['sensors'], 'readonly');
+    const store = tx.objectStore('sensors');
+    const index = store.index('sessionId');
+    const req = index.getAll(IDBKeyRange.only(sessionId));
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => resolve([]);
+  });
+}
+async function getResultsBySession(sessionId) {
+  return new Promise((resolve) => {
+    const tx = db.transaction(['results'], 'readonly');
+    const store = tx.objectStore('results');
+    const index = store.index('sessionId');
+    const req = index.getAll(IDBKeyRange.only(sessionId));
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => resolve([]);
+  });
+}
+
+// ===== Helper: sync satu sesi CLOSED ke AWS =====
+async function syncOneSessionToAWS(session) {
+  // Ambil semua sensor sampel & hasil terakhir dari IndexedDB
+  const readings = await getSensorsBySession(session.sessionId);
+  // Untuk ringkasan hasil, ambil entry terakhir pada 'results' jika ada
+  const results = await getResultsBySession(session.sessionId);
+  let last = results?.[results.length-1];
+  const payloadSession = {
+    ...session,
+    // pastikan field hasil ada agar tampil di history
+    lastResultCategory: last?.category ?? session.lastResultCategory ?? null,
+    lastResultConfidence: last?.confidence ?? session.lastResultConfidence ?? null,
+    lastProbabilities: last?.probabilities ?? session.lastProbabilities ?? null
+  };
+
+  // 1) Upsert sesi
+  await fetch(AWS_HISTORY.baseUrl + '/history/sync-session', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json','x-api-key': AWS_HISTORY.apiKey},
+    body: JSON.stringify({ session: payloadSession })
+  });
+
+  // 2) Upload semua readings (ts, mg811, mq7, mq3, mq135)
+  const slimReadings = readings.map(r => ({
+    ts: r.timestamp,
+    mg811: r.mg811, mq7: r.mq7, mq3: r.mq3, mq135: r.mq135
+  }));
+  await fetch(AWS_HISTORY.baseUrl + '/history/sync-readings', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json','x-api-key': AWS_HISTORY.apiKey},
+    body: JSON.stringify({ sessionId: session.sessionId, readings: slimReadings })
+  });
+
+  // tandai sebagai tersinkron (tambah field baru di object session)
+  await updateSession(session.sessionId, { awsSynced: true });
+}
+
+// ===== Sinkronkan semua sesi CLOSED yang belum tersinkron =====
+async function syncClosedSessionsToAWS() {
+  const sessions = await getAllSessions();
+  const toSync = sessions.filter(s => s.status === 'CLOSED' && !s.awsSynced);
+  for (const s of toSync) {
+    try {
+      await syncOneSessionToAWS(s);
+      addLog(`☁️ Synced to AWS: ${s.sessionId}`);
+    } catch (e) {
+      addLog(`❌ Sync failed (${s.sessionId}): ${e.message}`);
     }
-    tbody.innerHTML = sessions.map(session=>{
-      const date = new Date(session.timestamp).toLocaleString('id-ID');
-      const statusColor = session.status === 'OPEN' ? '#28a745' : '#6c757d';
-      const statusIcon = session.status === 'OPEN' ? '🟢' : '🔴';
-      return `
-        <tr>
-          <td>${date}</td>
-          <td>${session.name}</td>
-          <td>${session.age}</td>
-          <td>${session.phone}</td>
-          <td>${session.brinkman}</td>
-          <td>${session.lastResultCategory || '-'}</td>
-          <td>${session.lastResultConfidence ? (session.lastResultConfidence * 100).toFixed(1) + '%' : '-'}</td>
-          <td style="color:${statusColor};font-weight:600">${statusIcon} ${session.status}</td>
-        </tr>`;
-    }).join('');
-    addLog(`📋 History: ${sessions.length} records`);
-  } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:red">Error: ${err.message}</td></tr>`;
   }
 }
+
+// ===== Ambil history dari AWS dan render ke tabel =====
+async function fetchHistoryFromAWS() {
+  const res = await fetch(AWS_HISTORY.baseUrl + '/history', {
+    headers: {'x-api-key': AWS_HISTORY.apiKey}
+  });
+  if (!res.ok) throw new Error('Fetch history failed: ' + res.status);
+  const data = await res.json();
+  return data.items || [];
+}
+
+// ===== Hapus satu sesi di AWS =====
+async function deleteHistory(sessionId) {
+  if (!confirm('Yakin hapus riwayat sesi ini dari AWS?')) return;
+  const res = await fetch(AWS_HISTORY.baseUrl + '/history/' + encodeURIComponent(sessionId), {
+    method: 'DELETE',
+    headers: {'x-api-key': AWS_HISTORY.apiKey}
+  });
+  if (!res.ok) { alert('Gagal hapus di AWS'); return; }
+  showToast('🗑️ Riwayat dihapus');
+  await loadHistory(); // refresh
+}
+
+// ====== GANTI fungsi loadHistory() dengan ini ======
+async function loadHistory() {
+  const tbody = document.getElementById('historyBody');
+  const syncIndicator = document.getElementById('syncIndicator');
+  tbody.innerHTML = '<tr><td colspan="9" style="text-align:center">Loading...</td></tr>';
+  syncIndicator.textContent = 'Sinkronisasi cloud...';
+
+  try {
+    // 1) Sinkronkan sesi CLOSED lokal yg belum ke AWS
+    await syncClosedSessionsToAWS();
+
+    // 2) Ambil daftar history dari AWS
+    const items = await fetchHistoryFromAWS();
+
+    // 3) Render tabel
+    if (items.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center">Belum ada data</td></tr>';
+    } else {
+      tbody.innerHTML = items.map(session => {
+        const date = new Date(session.timestamp).toLocaleString('id-ID');
+        const statusColor = session.status === 'OPEN' ? '#28a745' : '#6c757d';
+        const statusIcon = session.status === 'OPEN' ? '🟢' : '🔴';
+        const conf = session.lastResultConfidence != null ? (Number(session.lastResultConfidence) * 100).toFixed(1) + '%' : '-';
+        return `
+          <tr>
+            <td>${date}</td>
+            <td>${session.name}</td>
+            <td>${session.age}</td>
+            <td>${session.phone}</td>
+            <td>${session.brinkman}</td>
+            <td>${session.lastResultCategory || '-'}</td>
+            <td>${conf}</td>
+            <td style="color:${statusColor};font-weight:600">${statusIcon} ${session.status}</td>
+            <td>
+              <button class="btn btn-danger btn-sm" onclick="deleteHistory('${session.sessionId}')">Hapus</button>
+            </td>
+          </tr>`;
+      }).join('');
+    }
+    syncIndicator.textContent = `Sinkronisasi OK • ${new Date().toLocaleTimeString('id-ID')}`;
+    addLog(`📋 History (AWS): ${items.length} records`);
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:red">Error: ${err.message}</td></tr>`;
+    syncIndicator.textContent = 'Error sinkronisasi';
+    addLog('❌ loadHistory error: ' + err.message);
+  }
+}
+
 async function refreshSystemStatus() {
   addLog('🔍 Checking system...');
   if (mqttConnected) updateStatus('mqttBroker', true, 'Connected to ' + CONFIG.mqtt.broker);
