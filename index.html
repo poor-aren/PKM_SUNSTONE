@@ -624,13 +624,31 @@ document.getElementById('patientForm').addEventListener('submit', async function
 async function finishSession() {
   if (!currentSessionId) return;
   if (!confirm('Yakin tutup sesi?')) return;
-  await updateSession(currentSessionId, { status:'CLOSED', finishTimestamp:new Date().toISOString() });
-  sendMQTTCommand({ action:'close_session' });
+
+  await updateSession(currentSessionId, {
+    status: 'CLOSED',
+    finishTimestamp: new Date().toISOString()
+  });
+  sendMQTTCommand({ action: 'close_session' });
+
+  // 🔑 langsung sync ke AWS
+  const allSessions = await getAllSessions();
+  const closed = allSessions.find(s => s.sessionId === currentSessionId && s.status === 'CLOSED');
+  if (closed) {
+    try {
+      await syncOneSessionToAWS(closed);
+      addLog(`☁️ Session uploaded to AWS: ${closed.sessionId}`);
+    } catch (e) {
+      addLog(`❌ Sync error: ${e.message}`);
+    }
+  }
+
   resetDashboard();
   addLog(`✅ Sesi selesai`);
   showToast('✅ Sesi ditutup!');
   setTimeout(()=>{ sendMQTTCommand({ action:'no_session' }); }, 1000);
 }
+
 
 function resetDashboard() {
   currentSessionId = null;
