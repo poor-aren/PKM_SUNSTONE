@@ -152,7 +152,7 @@
         </div>
       </div>
 
-      <!-- Result Section (disesuaikan: 3 kelas) -->
+      <!-- Result Section -->
       <div id="resultSection" class="result-section">
         <h3>🔬 Hasil Analisis PPOK</h3>
         <div class="result-category" id="resultCategory">-</div>
@@ -160,16 +160,20 @@
         
         <div class="prob-bars">
           <div class="prob-item">
-            <div class="prob-label"><span>Rendah</span><span id="probRendah">0%</span></div>
-            <div class="prob-bar"><div class="prob-fill" id="probRendahBar" style="width:0%"></div></div>
+            <div class="prob-label"><span>Normal</span><span id="probNormal">0%</span></div>
+            <div class="prob-bar"><div class="prob-fill" id="probNormalBar" style="width:0%"></div></div>
+          </div>
+          <div class="prob-item">
+            <div class="prob-label"><span>Ringan</span><span id="probRingan">0%</span></div>
+            <div class="prob-bar"><div class="prob-fill" id="probRinganBar" style="width:0%"></div></div>
           </div>
           <div class="prob-item">
             <div class="prob-label"><span>Sedang</span><span id="probSedang">0%</span></div>
             <div class="prob-bar"><div class="prob-fill" id="probSedangBar" style="width:0%"></div></div>
           </div>
           <div class="prob-item">
-            <div class="prob-label"><span>Tinggi</span><span id="probTinggi">0%</span></div>
-            <div class="prob-bar"><div class="prob-fill" id="probTinggiBar" style="width:0%"></div></div>
+            <div class="prob-label"><span>Berat</span><span id="probBerat">0%</span></div>
+            <div class="prob-bar"><div class="prob-fill" id="probBeratBar" style="width:0%"></div></div>
           </div>
         </div>
       </div>
@@ -259,7 +263,8 @@
 
   <div id="toast" class="toast"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.min.js"></script>
+<!-- UPGRADE ORT-WEB -->
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.0/dist/ort.min.js"></script>
 <script src="https://unpkg.com/mqtt@5.3.5/dist/mqtt.min.js"></script>
 <script>
 // ============================================
@@ -582,143 +587,86 @@ async function loadONNXModel() {
   }
 }
 
+// === VERSI 1: PARSE ZipMap (sequence<map<int64,float>>)
 async function runInference(sensorData) {
   addLog('🤖 Running inference...');
   addLog(`📊 Input data: MG811=${sensorData.mg811}, MQ7=${sensorData.mq7}, MQ3=${sensorData.mq3}, MQ135=${sensorData.mq135}`);
   
   if (!onnxSession) {
-    addLog('⚠️  No ONNX model - using fallback (3 kelas)');
+    addLog('⚠️  No ONNX model - using fallback');
     const avg = (sensorData.mg811 + sensorData.mq7 + sensorData.mq3 + sensorData.mq135) / 4;
-    addLog(`📊 Average sensor value: ${avg.toFixed(2)}`);
-    
     let result;
-    if (avg < 250) {
-      result = { category: 'Rendah', confidence: 0.80, probabilities: {rendah:0.80, sedang:0.15, tinggi:0.05} };
-    } else if (avg < 400) {
-      result = { category: 'Sedang', confidence: 0.78, probabilities: {rendah:0.10, sedang:0.78, tinggi:0.12} };
+    if (avg < 200) {
+      result = { category: 'Rendah', confidence: 0.85, probabilities: { normal:0.85, ringan:0.10, sedang:0.05, berat:0.0 } };
+    } else if (avg < 350) {
+      result = { category: 'Sedang', confidence: 0.78, probabilities: { normal:0.10, ringan:0.78, sedang:0.12, berat:0.0 } };
     } else {
-      result = { category: 'Tinggi', confidence: 0.85, probabilities: {rendah:0.05, sedang:0.20, tinggi:0.75} };
+      result = { category: 'Tinggi', confidence: 0.82, probabilities: { normal:0.08, ringan:0.20, sedang:0.72, berat:0.0 } };
     }
-    
     addLog(`✅ Fallback result: ${result.category} (${(result.confidence * 100).toFixed(1)}%)`);
     return result;
   }
   
   try {
-    // Siapkan input tensor
-    addLog('🔧 Preparing tensor input...');
+    const inputName = onnxSession.inputNames[0] || 'float_input';
     const input = new Float32Array([sensorData.mg811, sensorData.mq7, sensorData.mq3, sensorData.mq135]);
     const tensor = new ort.Tensor('float32', input, [1, 4]);
-    const inputName = onnxSession.inputNames[0];
     const feeds = { [inputName]: tensor };
-    
-    // Jalankan inference
-    addLog('🤖 Running ONNX inference...');
-    const results = await onnxSession.run(feeds);
+
+    addLog('🔧 Input names: ' + JSON.stringify(onnxSession.inputNames));
+    addLog('🔧 Output names: ' + JSON.stringify(onnxSession.outputNames));
+
+    const wanted = onnxSession.outputNames;
+    addLog('🤖 Running ONNX inference (all outputs)...');
+    const results = await onnxSession.run(feeds, wanted);
     addLog('✅ ONNX inference complete');
-    addLog('🔎 Output names: ' + JSON.stringify(onnxSession.outputNames));
 
-    // Robust parsing:
-    // - Cari output 'probabilities' (Map dari ZipMap) ATAU Tensor probabilitas
-    // - Cari output 'label' (Tensor/Scalar)
-    let probsObj = null;          // jika Map (label->prob)
-    let probsTensorArr = null;    // jika Tensor float [1,N]
-    let labelValue = null;        // string/int prediksi
-    
-    for (const name of onnxSession.outputNames) {
-      const out = results[name];
-      const hasData = (out && typeof out === 'object' && 'data' in out && Array.isArray(out.data));
-      // ort.Tensor check sederhana:
-      const isTensor = hasData && ('dims' in out);
+    const labelName = wanted.find(n => /label/i.test(n)) || 'output_label';
+    const probName  = wanted.find(n => /prob/i.test(n))  || 'output_probability';
 
-      if (isTensor) {
-        // Tensor output
-        addLog(`🔬 Tensor output '${name}' dims=${JSON.stringify(out.dims)} len=${out.data.length}`);
-        // Heuristik: jika panjang data > 1, anggap ini probabilitas
-        if (out.data.length > 1) {
-          probsTensorArr = Array.from(out.data);
-        } else {
-          // Bisa jadi ini label id (int/float)
-          labelValue = out.data[0];
-        }
-      } else {
-        // Bukan Tensor → kemungkinan besar Map dari ZipMap
-        if (out && typeof out === 'object') {
-          const keys = Object.keys(out);
-          // Heuristik: jika terdapat key & value numerik → ini Map probabilities
-          if (keys.length && typeof out[keys[0]] === 'number') {
-            probsObj = out;
-            addLog(`🧭 Detected ZipMap at output '${name}' with keys: ${keys.join(', ')}`);
-          } else if (keys.length === 0) {
-            addLog(`ℹ️ Output '${name}' is object but empty keys.`);
-          }
-        } else {
-          addLog(`ℹ️ Output '${name}' is of type ${typeof out}`);
-        }
-      }
+    // ---- Parse LABEL (int64[1])
+    let labelIdx = null;
+    const labelTensor = results[labelName];
+    if (labelTensor && labelTensor.data && labelTensor.data.length > 0) {
+      const raw = labelTensor.data[0];
+      labelIdx = typeof raw === 'bigint' ? Number(raw) : Number(raw);
     }
 
-    // Urutan label target UI (3 kelas):
-    const UI_LABELS = ['Rendah','Sedang','Tinggi'];
-    const UI_KEYS   = ['rendah','sedang','tinggi']; // untuk object probs
-
-    // Bentuk array probabilitas [Rendah, Sedang, Tinggi]
-    let probsArr = [0,0,0];
-    if (probsObj) {
-      // Map label->prob. Normalisasi key agar tahan terhadap variasi kapitalisasi/spasi.
-      const norm = s => String(s).trim().toLowerCase();
-      const lookup = {};
-      for (const k of Object.keys(probsObj)) {
-        lookup[norm(k)] = probsObj[k];
-      }
-      probsArr = [
-        lookup['rendah'] ?? 0,
-        lookup['sedang'] ?? 0,
-        lookup['tinggi'] ?? 0
-      ];
-    } else if (probsTensorArr) {
-      // Tensor probabilitas: asumsikan urutannya sama dengan label encoder saat ekspor
-      // Kalau urutan model = [Rendah,Sedang,Tinggi], maka langsung pakai.
-      // Jika berbeda, silakan sesuaikan mapping di sini.
-      if (probsTensorArr.length === 3) {
-        probsArr = probsTensorArr.slice(0,3);
-      } else {
-        addLog(`⚠️ Unexpected probs tensor length: ${probsTensorArr.length}. Trunc/pad to 3.`);
-        probsArr = [
-          probsTensorArr[0] ?? 0,
-          probsTensorArr[1] ?? 0,
-          probsTensorArr[2] ?? 0
-        ];
-      }
-    } else {
-      addLog('⚠️ No probabilities found in outputs; fallback evenly.');
-      probsArr = [0.34, 0.33, 0.33];
+    // ---- Parse PROB: sequence<map<int64,float32>> dari ZipMap
+    let p0=0, p1=0, p2=0;
+    const probVal = results[probName];
+    if (Array.isArray(probVal) && probVal.length > 0) {
+      const map0 = probVal[0];
+      p0 = Number(map0['0'] ?? map0[0] ?? 0);
+      p1 = Number(map0['1'] ?? map0[1] ?? 0);
+      p2 = Number(map0['2'] ?? map0[2] ?? 0);
+    } else if (probVal && probVal.data) {
+      // fallback kalau ternyata tensor [1,3]
+      const arr = Array.from(probVal.data);
+      p0 = Number(arr[0] ?? 0); p1 = Number(arr[1] ?? 0); p2 = Number(arr[2] ?? 0);
     }
 
-    // Tentukan kategori & confidence
-    const maxProb = Math.max(...probsArr);
-    const maxIdx = probsArr.indexOf(maxProb);
-    let category = UI_LABELS[maxIdx];
-
-    // Jika ada output label (string/int), boleh override kategori jika cocok
-    if (labelValue !== null && labelValue !== undefined) {
-      const labelStr = String(labelValue);
-      const labelNorm = labelStr.trim().toLowerCase();
-      const idxByLabel = UI_LABELS.map(s => s.toLowerCase()).indexOf(labelNorm);
-      if (idxByLabel >= 0) {
-        category = UI_LABELS[idxByLabel];
-      }
+    // Tentukan kategori dari probabilitas (prioritas), jika kosong pakai label
+    const classes = ['Rendah', 'Sedang', 'Tinggi'];
+    let category = classes[labelIdx ?? 0];
+    let confidence = 1.0;
+    const probsArr = [p0,p1,p2];
+    const maxIdx = probsArr.indexOf(Math.max(...probsArr));
+    if (p0+p1+p2 > 0) {
+      category = classes[maxIdx];
+      confidence = probsArr[maxIdx];
     }
 
-    // Bangun objek probabilitas untuk UI (keys: rendah/sedang/tinggi)
+    // Mapping ke UI 4 bar (Normal, Ringan, Sedang, Berat)
     const probabilities = {
-      rendah: probsArr[0],
-      sedang: probsArr[1],
-      tinggi: probsArr[2]
+      normal: p0,           // Normal  -> Rendah
+      ringan: p1,           // Ringan  -> Sedang
+      sedang: p2,           // Sedang  -> Tinggi
+      berat:  0.0           // Berat   -> tidak ada di model
     };
 
-    addLog(`✅ ONNX result: ${category} (${(maxProb * 100).toFixed(1)}%) | probs=${JSON.stringify(probabilities)}`);
-    return { category, confidence: maxProb, probabilities };
+    addLog(`✅ ONNX result: ${category} (${(confidence * 100).toFixed(1)}%)`);
+    return { category, confidence, probabilities };
   } catch (error) {
     addLog('❌ Inference error: ' + error.message);
     addLog('❌ Error stack: ' + error.stack);
@@ -812,7 +760,7 @@ document.getElementById('patientForm').addEventListener('submit', async function
   document.getElementById('currentAge').textContent = age;
   document.getElementById('currentPhone').textContent = phone;
   document.getElementById('currentBrinkman').textContent = brinkman;
-  document.getElementById('addPatientSection').style.display = 'block' ? 'block' : 'block';
+  document.getElementById('addPatientSection').style.display = 'block';
   document.getElementById('addPatientSection').style.display = 'none';
   document.getElementById('currentPatientSection').style.display = 'block';
   document.getElementById('sensorPanel').style.display = 'block';
@@ -978,25 +926,22 @@ function displayResult(result) {
   document.getElementById('patientStatus').className = 'status-badge status-completed';
   
   if (result.probabilities) {
-    addLog('📊 Setting probability bars (3 kelas)...');
-    const probs = result.probabilities; // {rendah, sedang, tinggi}
+    addLog('📊 Setting probability bars...');
+    const probs = result.probabilities;
     
-    const clip01 = v => Math.max(0, Math.min(1, Number(v) || 0));
-
-    const pr = clip01(probs.rendah);
-    const ps = clip01(probs.sedang);
-    const pt = clip01(probs.tinggi);
-
-    document.getElementById('probRendah').textContent = (pr * 100).toFixed(1) + '%';
-    document.getElementById('probRendahBar').style.width = (pr * 100) + '%';
+    document.getElementById('probNormal').textContent = (probs.normal * 100).toFixed(1) + '%';
+    document.getElementById('probNormalBar').style.width = (probs.normal * 100) + '%';
     
-    document.getElementById('probSedang').textContent = (ps * 100).toFixed(1) + '%';
-    document.getElementById('probSedangBar').style.width = (ps * 100) + '%';
+    document.getElementById('probRingan').textContent = (probs.ringan * 100).toFixed(1) + '%';
+    document.getElementById('probRinganBar').style.width = (probs.ringan * 100) + '%';
     
-    document.getElementById('probTinggi').textContent = (pt * 100).toFixed(1) + '%';
-    document.getElementById('probTinggiBar').style.width = (pt * 100) + '%';
+    document.getElementById('probSedang').textContent = (probs.sedang * 100).toFixed(1) + '%';
+    document.getElementById('probSedangBar').style.width = (probs.sedang * 100) + '%';
     
-    addLog('✅ Probability bars updated (Rendah/Sedang/Tinggi)');
+    document.getElementById('probBerat').textContent = (probs.berat * 100).toFixed(1) + '%';
+    document.getElementById('probBeratBar').style.width = (probs.berat * 100) + '%';
+    
+    addLog('✅ Probability bars updated');
   } else {
     addLog('⚠️ No probabilities in result');
   }
