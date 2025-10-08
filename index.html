@@ -277,7 +277,7 @@ const CONFIG = {
       name: 'Admin SUNSTONE'
     }
   },
-  modelUrl: 'sunstone_model.onnx',
+  modelUrl: 'best_model.onnx',
   mqtt: {
     broker: 'wss://broker.hivemq.com:8884/mqtt',
     clientId: 'sunstone_web_' + Math.random().toString(16).substr(2, 8),
@@ -470,60 +470,74 @@ async function runInference(sensorData) {
   addLog('🤖 Running inference (LABEL + PROB split)...');
   addLog(`📊 Input data: MG811=${sensorData.mg811}, MQ7=${sensorData.mq7}, MQ3=${sensorData.mq3}, MQ135=${sensorData.mq135}`);
 
+  // --- fallback kalau model belum kebuka ---
   if (!onnxSession) {
-    // fallback sederhana
     const avg = (sensorData.mg811 + sensorData.mq7 + sensorData.mq3 + sensorData.mq135) / 4;
     const idx = avg < 200 ? 0 : (avg < 350 ? 1 : 2);
-    const classes = ['Rendah','Sedang','Tinggi'];
+    const classes = ['Normal','Ringan','Sedang'];
     const category = classes[idx];
-    const probs4 = [idx===0?1:0, idx===1?1:0, idx===2?1:0, 0];
-    return { category, confidence: 1.0,
-             probabilities:{ normal:probs4[0], ringan:probs4[1], sedang:probs4[2], berat:probs4[3]} };
+    const probs3 = [idx===0?1:0, idx===1?1:0, idx===2?1:0];
+    return {
+      category,
+      confidence: 1.0,
+      probabilities: { normal: probs3[0], ringan: probs3[1], sedang: probs3[2], berat: 0 }
+    };
   }
 
   const inputName = onnxSession.inputNames[0] || 'float_input';
   const outs = onnxSession.outputNames;
-  const labelName = outs.find(n => /label/i.test(n)) || 'output_label';
-  const probName  = outs.find(n => /prob/i.test(n))  || 'output_probability';
+  const labelName = outs.find(n => /label/i.test(n)) || 'label';
+  const probName  = outs.find(n => /prob/i.test(n))  || 'probabilities';
 
-  // Tensor input
+  // Tensor input [1,4]
   const input = new Float32Array([sensorData.mg811, sensorData.mq7, sensorData.mq3, sensorData.mq135]);
   const tensor = new ort.Tensor('float32', input, [1, 4]);
   const feeds = { [inputName]: tensor };
 
-  // 1. Run label
-  addLog('🤖 ORT run #1 (label only)...');
+  // == Run #1: label ==
+  addLog('🤖 ORT run #1 (label only)…');
   const res1 = await onnxSession.run(feeds, { [labelName]: null });
+  let labelIdx = 0;
   const labelVal = res1[labelName];
-  let raw = (labelVal && labelVal.data) ? labelVal.data[0] : (Array.isArray(labelVal) ? labelVal[0] : labelVal);
-  const labelIdx = Number(typeof raw === 'bigint' ? raw : raw ?? 0);
-  const classes = ['Rendah','Sedang','Tinggi'];
-  let category = classes[labelIdx] ?? 'Rendah';
-
-  // 2. Run probability
-  addLog('🤖 ORT run #2 (probability only)...');
-  const res2 = await onnxSession.run(feeds, { [probName]: null });
-  const seq = res2[probName];
-  const map0 = Array.isArray(seq) ? seq[0] : null;
-
-  let p0=0, p1=0, p2=0;
-  if (map0) {
-    p0 = Number(map0['0'] ?? map0[0] ?? 0);
-    p1 = Number(map0['1'] ?? map0[1] ?? 0);
-    p2 = Number(map0['2'] ?? map0[2] ?? 0);
+  if (labelVal && labelVal.data) {
+    // int64[1] → BigInt/Number
+    const raw = labelVal.data[0];
+    labelIdx = Number(typeof raw === 'bigint' ? raw : raw ?? 0);
+  } else if (Array.isArray(labelVal)) {
+    labelIdx = Number(labelVal[0] ?? 0);
   }
 
-  const probsArr = [p0,p1,p2];
+  const classes = ['Normal','Ringan','Sedang'];
+  let category = classes[labelIdx] ?? 'Normal';
+
+  // == Run #2: probabilities (tensor float32[1,3]) ==
+  addLog('🤖 ORT run #2 (probabilities only)…');
+  const res2 = await onnxSession.run(feeds, { [probName]: null });
+  const probT = res2[probName];
+
+  let p0 = 0, p1 = 0, p2 = 0;
+  if (probT && probT.data) {
+    // data bisa panjang 3 (flat) atau 3 dengan dims [1,3]
+    const d = probT.data;
+    if (d.length >= 3) { p0 = Number(d[0]); p1 = Number(d[1]); p2 = Number(d[2]); }
+  } else if (Array.isArray(probT)) {
+    // fallback kalau library mengembalikan array biasa
+    if (probT.length >= 3) { p0 = Number(probT[0]); p1 = Number(probT[1]); p2 = Number(probT[2]); }
+  }
+
+  const probsArr = [p0, p1, p2];
   const maxIdx = probsArr.indexOf(Math.max(...probsArr));
   if (maxIdx >= 0) category = classes[maxIdx];
-  const confidence = probsArr[maxIdx] || 0;
 
-  // Mapping ke 4 bar (Normal=Rendah, Ringan=Sedang, Sedang=Tinggi, Berat=0)
-  const probabilities = { normal:p0, ringan:p1, sedang:p2, berat:0.0 };
+  const confidence = Math.max(...probsArr) || 0;
+
+  // Peta ke 4 bar UI (Berat = 0 karena model 3 kelas)
+  const probabilities = { normal: p0, ringan: p1, sedang: p2, berat: 0.0 };
 
   addLog(`✅ ONNX result: ${category} (${(confidence*100).toFixed(1)}%)`);
   return { category, confidence, probabilities };
 }
+
 
 
 // ============================================
