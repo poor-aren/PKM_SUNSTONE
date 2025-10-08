@@ -596,25 +596,25 @@ async function runInference(sensorData) {
   addLog('🤖 Running inference...');
   addLog(`📊 Input data: MG811=${sensorData.mg811}, MQ7=${sensorData.mq7}, MQ3=${sensorData.mq3}, MQ135=${sensorData.mq135}`);
   
+  // Calculate fallback result first (always have backup)
+  const avg = (sensorData.mg811 + sensorData.mq7 + sensorData.mq3 + sensorData.mq135) / 4;
+  addLog(`📊 Average sensor value: ${avg.toFixed(2)}`);
+  
+  let fallbackResult;
+  if (avg < 200) {
+    fallbackResult = { category: 'Normal', confidence: 0.85, probabilities: {normal:0.85,ringan:0.10,sedang:0.03,berat:0.02} };
+  } else if (avg < 300) {
+    fallbackResult = { category: 'Ringan', confidence: 0.78, probabilities: {normal:0.10,ringan:0.78,sedang:0.10,berat:0.02} };
+  } else if (avg < 450) {
+    fallbackResult = { category: 'Sedang', confidence: 0.82, probabilities: {normal:0.05,ringan:0.15,sedang:0.82,berat:0.08} };
+  } else {
+    fallbackResult = { category: 'Berat', confidence: 0.90, probabilities: {normal:0.02,ringan:0.05,sedang:0.13,berat:0.90} };
+  }
+  
   if (!onnxSession) {
     addLog('⚠️  No ONNX model - using fallback');
-    // Fallback logic
-    const avg = (sensorData.mg811 + sensorData.mq7 + sensorData.mq3 + sensorData.mq135) / 4;
-    addLog(`📊 Average sensor value: ${avg.toFixed(2)}`);
-    
-    let result;
-    if (avg < 200) {
-      result = { category: 'Normal', confidence: 0.85, probabilities: {normal:0.85,ringan:0.10,sedang:0.03,berat:0.02} };
-    } else if (avg < 350) {
-      result = { category: 'Ringan', confidence: 0.78, probabilities: {normal:0.10,ringan:0.78,sedang:0.10,berat:0.02} };
-    } else if (avg < 500) {
-      result = { category: 'Sedang', confidence: 0.82, probabilities: {normal:0.05,ringan:0.15,sedang:0.82,berat:0.08} };
-    } else {
-      result = { category: 'Berat', confidence: 0.90, probabilities: {normal:0.02,ringan:0.05,sedang:0.13,berat:0.90} };
-    }
-    
-    addLog(`✅ Fallback result: ${result.category} (${(result.confidence * 100).toFixed(1)}%)`);
-    return result;
+    addLog(`✅ Fallback result: ${fallbackResult.category} (${(fallbackResult.confidence * 100).toFixed(1)}%)`);
+    return fallbackResult;
   }
   
   try {
@@ -622,18 +622,36 @@ async function runInference(sensorData) {
     const input = new Float32Array([sensorData.mg811, sensorData.mq7, sensorData.mq3, sensorData.mq135]);
     const tensor = new ort.Tensor('float32', input, [1, 4]);
     
-    addLog('🔧 Input names: ' + JSON.stringify(onnxSession.inputNames));
-    const inputName = onnxSession.inputNames[0]; // Use first input name
+    addLog('🔧 Available input names: ' + JSON.stringify(onnxSession.inputNames));
+    addLog('🔧 Available output names: ' + JSON.stringify(onnxSession.outputNames));
+    
+    const inputName = onnxSession.inputNames[0];
+    const outputName = onnxSession.outputNames[0];
+    
     const feeds = {};
     feeds[inputName] = tensor;
     
-    addLog('🤖 Running ONNX inference...');
+    addLog(`🤖 Running ONNX inference (input: ${inputName}, output: ${outputName})...`);
     const results = await onnxSession.run(feeds);
     addLog('✅ ONNX inference complete');
     
-    const outputName = onnxSession.outputNames[0]; // Use first output name
-    const output = Array.from(results[outputName].data);
-    addLog(`📊 ONNX output: [${output.map(v => v.toFixed(4)).join(', ')}]`);
+    // Try to get output data
+    let output;
+    try {
+      output = Array.from(results[outputName].data);
+      addLog(`📊 ONNX output: [${output.map(v => v.toFixed(4)).join(', ')}]`);
+    } catch (e) {
+      addLog('❌ Cannot access output tensor data: ' + e.message);
+      addLog('⚠️  Falling back to rule-based inference');
+      return fallbackResult;
+    }
+    
+    // Validate output
+    if (!output || output.length !== 4) {
+      addLog('❌ Invalid output shape, expected [4], got: ' + (output ? output.length : 'null'));
+      addLog('⚠️  Falling back to rule-based inference');
+      return fallbackResult;
+    }
     
     const probabilities = {
       normal: output[0],
@@ -648,10 +666,12 @@ async function runInference(sensorData) {
     
     addLog(`✅ ONNX result: ${category} (${(maxProb * 100).toFixed(1)}%)`);
     return { category, confidence: maxProb, probabilities };
+    
   } catch (error) {
-    addLog('❌ Inference error: ' + error.message);
-    addLog('❌ Error stack: ' + error.stack);
-    return null;
+    addLog('❌ ONNX inference error: ' + error.message);
+    addLog('❌ Error stack: ' + (error.stack || 'No stack trace'));
+    addLog('⚠️  Falling back to rule-based inference');
+    return fallbackResult;
   }
 }
 
