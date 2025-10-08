@@ -160,20 +160,16 @@
         
         <div class="prob-bars">
           <div class="prob-item">
-            <div class="prob-label"><span>Normal</span><span id="probNormal">0%</span></div>
-            <div class="prob-bar"><div class="prob-fill" id="probNormalBar" style="width:0%"></div></div>
-          </div>
-          <div class="prob-item">
-            <div class="prob-label"><span>Ringan</span><span id="probRingan">0%</span></div>
-            <div class="prob-bar"><div class="prob-fill" id="probRinganBar" style="width:0%"></div></div>
+            <div class="prob-label"><span>Rendah</span><span id="probRendah">0%</span></div>
+            <div class="prob-bar"><div class="prob-fill" id="probRendahBar" style="width:0%"></div></div>
           </div>
           <div class="prob-item">
             <div class="prob-label"><span>Sedang</span><span id="probSedang">0%</span></div>
             <div class="prob-bar"><div class="prob-fill" id="probSedangBar" style="width:0%"></div></div>
           </div>
           <div class="prob-item">
-            <div class="prob-label"><span>Berat</span><span id="probBerat">0%</span></div>
-            <div class="prob-bar"><div class="prob-fill" id="probBeratBar" style="width:0%"></div></div>
+            <div class="prob-label"><span>Tinggi</span><span id="probTinggi">0%</span></div>
+            <div class="prob-bar"><div class="prob-fill" id="probTinggiBar" style="width:0%"></div></div>
           </div>
         </div>
       </div>
@@ -206,12 +202,11 @@
               <th>Hasil PPOK</th>
               <th>Confidence</th>
               <th>Status</th>
-              <th>Aksi</th> <!-- TAMBAHAN -->
+              <th>Aksi</th>
             </tr>
           </thead>
-
           <tbody id="historyBody">
-            <tr><td colspan="8" style="text-align:center">Loading...</td></tr>
+            <tr><td colspan="9" style="text-align:center">Loading...</td></tr>
           </tbody>
         </table>
       </div>
@@ -265,7 +260,6 @@
 
   <div id="toast" class="toast"></div>
 
-<!-- ONNXRuntime Web (>=1.18, pakai 1.20 stabil) -->
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.0/dist/ort.min.js"></script>
 <script src="https://unpkg.com/mqtt@5.3.5/dist/mqtt.min.js"></script>
 <script>
@@ -301,14 +295,10 @@ let lastSensorTimestamp = null;
 let mqttClient = null;
 let mqttConnected = false;
 
-// === AWS HISTORY SYNC CONFIG (History only) ===
-// === AWS HISTORY SYNC CONFIG (History only) ===
 const AWS_HISTORY = {
   baseUrl: 'https://f385p6o1z9.execute-api.ap-southeast-1.amazonaws.com',
   apiKey: ''
 };
-
-
 
 // ============================================
 // UTILITY FUNCTIONS
@@ -347,7 +337,6 @@ function generateSessionId(name, phone) {
 
 // ============================================
 // INDEXEDDB
-// (Tidak diubah)
 // ============================================
 async function initIndexedDB() {
   return new Promise((resolve, reject) => {
@@ -380,7 +369,7 @@ async function saveResult(resultData){const tx=db.transaction(['results'],'readw
 async function getAllSessions(){const tx=db.transaction(['sessions'],'readonly');const store=tx.objectStore('sessions');return new Promise((resolve)=>{const request=store.getAll();request.onsuccess=()=>resolve(request.result||[]);request.onerror=()=>resolve([]);});}
 
 // ============================================
-// MQTT (Tidak diubah UI/UX)
+// MQTT
 // ============================================
 function connectMQTT() {
   addLog('🔌 Connecting to MQTT broker...');
@@ -458,7 +447,7 @@ async function handleStatusRequest(data) {
 }
 
 // ============================================
-// ONNX MODEL (JS ONLY CHANGES ARE HERE)
+// ONNX MODEL - UBAH LABEL MAPPING
 // ============================================
 async function loadONNXModel() {
   try {
@@ -475,23 +464,22 @@ async function loadONNXModel() {
   }
 }
 
-// ===== LABEL-ONLY: fetch 1 output via fetches object (menghindari non-tensor) =====
-// ===== LABEL + PROB SPLIT (2x run) =====
 async function runInference(sensorData) {
-  addLog('🤖 Running inference (LABEL + PROB split)...');
+  addLog('🤖 Running inference (3-class model)...');
   addLog(`📊 Input data: MG811=${sensorData.mg811}, MQ7=${sensorData.mq7}, MQ3=${sensorData.mq3}, MQ135=${sensorData.mq135}`);
 
-  // --- fallback kalau model belum kebuka ---
+  // UBAH: Label mapping dari 3 kelas model ke UI baru
+  const classLabels = ['Rendah', 'Sedang', 'Tinggi'];
+
   if (!onnxSession) {
     const avg = (sensorData.mg811 + sensorData.mq7 + sensorData.mq3 + sensorData.mq135) / 4;
     const idx = avg < 200 ? 0 : (avg < 350 ? 1 : 2);
-    const classes = ['Normal','Ringan','Sedang'];
-    const category = classes[idx];
+    const category = classLabels[idx];
     const probs3 = [idx===0?1:0, idx===1?1:0, idx===2?1:0];
     return {
       category,
       confidence: 1.0,
-      probabilities: { normal: probs3[0], ringan: probs3[1], sedang: probs3[2], berat: 0 }
+      probabilities: { rendah: probs3[0], sedang: probs3[1], tinggi: probs3[2] }
     };
   }
 
@@ -500,56 +488,46 @@ async function runInference(sensorData) {
   const labelName = outs.find(n => /label/i.test(n)) || 'label';
   const probName  = outs.find(n => /prob/i.test(n))  || 'probabilities';
 
-  // Tensor input [1,4]
   const input = new Float32Array([sensorData.mg811, sensorData.mq7, sensorData.mq3, sensorData.mq135]);
   const tensor = new ort.Tensor('float32', input, [1, 4]);
   const feeds = { [inputName]: tensor };
 
-  // == Run #1: label ==
   addLog('🤖 ORT run #1 (label only)…');
   const res1 = await onnxSession.run(feeds, { [labelName]: null });
   let labelIdx = 0;
   const labelVal = res1[labelName];
   if (labelVal && labelVal.data) {
-    // int64[1] → BigInt/Number
     const raw = labelVal.data[0];
     labelIdx = Number(typeof raw === 'bigint' ? raw : raw ?? 0);
   } else if (Array.isArray(labelVal)) {
     labelIdx = Number(labelVal[0] ?? 0);
   }
 
-  const classes = ['Normal','Ringan','Sedang'];
-  let category = classes[labelIdx] ?? 'Normal';
+  let category = classLabels[labelIdx] ?? 'Rendah';
 
-  // == Run #2: probabilities (tensor float32[1,3]) ==
   addLog('🤖 ORT run #2 (probabilities only)…');
   const res2 = await onnxSession.run(feeds, { [probName]: null });
   const probT = res2[probName];
 
   let p0 = 0, p1 = 0, p2 = 0;
   if (probT && probT.data) {
-    // data bisa panjang 3 (flat) atau 3 dengan dims [1,3]
     const d = probT.data;
     if (d.length >= 3) { p0 = Number(d[0]); p1 = Number(d[1]); p2 = Number(d[2]); }
   } else if (Array.isArray(probT)) {
-    // fallback kalau library mengembalikan array biasa
     if (probT.length >= 3) { p0 = Number(probT[0]); p1 = Number(probT[1]); p2 = Number(probT[2]); }
   }
 
   const probsArr = [p0, p1, p2];
   const maxIdx = probsArr.indexOf(Math.max(...probsArr));
-  if (maxIdx >= 0) category = classes[maxIdx];
+  if (maxIdx >= 0) category = classLabels[maxIdx];
 
   const confidence = Math.max(...probsArr) || 0;
 
-  // Peta ke 4 bar UI (Berat = 0 karena model 3 kelas)
-  const probabilities = { normal: p0, ringan: p1, sedang: p2, berat: 0.0 };
+  const probabilities = { rendah: p0, sedang: p1, tinggi: p2 };
 
   addLog(`✅ ONNX result: ${category} (${(confidence*100).toFixed(1)}%)`);
   return { category, confidence, probabilities };
 }
-
-
 
 // ============================================
 // LOGIN
@@ -589,7 +567,7 @@ function logout() {
 }
 
 // ============================================
-// SESSION MANAGEMENT (tidak diubah except call runInference())
+// SESSION MANAGEMENT
 // ============================================
 document.getElementById('patientForm').addEventListener('submit', async function(e) {
   e.preventDefault();
@@ -632,16 +610,13 @@ async function finishSession() {
   });
   sendMQTTCommand({ action: 'close_session' });
 
-  // 🔑 SYNC KE AWS
   const allSessions = await getAllSessions();
   const closed = allSessions.find(s => s.sessionId === currentSessionId && s.status === 'CLOSED');
   if (closed) {
     try {
-      // Ambil semua sensor readings untuk sesi ini
       const sensors = await getSensorsBySession(currentSessionId);
       const results = await getResultsBySession(currentSessionId);
       
-      // Format data untuk AWS
       const sensorReadings = sensors.map(s => ({
         timestamp: s.timestamp,
         flowRate: s.mg811 || 0,
@@ -655,7 +630,7 @@ async function finishSession() {
         patientData: {
           name: closed.name,
           age: closed.age,
-          gender: 'L', // default
+          gender: 'L',
           phone: closed.phone,
           brinkman: closed.brinkman
         },
@@ -690,7 +665,6 @@ async function finishSession() {
   showToast('✅ Sesi ditutup!');
   setTimeout(()=>{ sendMQTTCommand({ action:'no_session' }); }, 1000);
 }
-
 
 function resetDashboard() {
   currentSessionId = null;
@@ -796,14 +770,12 @@ function displayResult(result) {
 
   if (result.probabilities) {
     const probs = result.probabilities;
-    document.getElementById('probNormal').textContent = (probs.normal * 100).toFixed(1) + '%';
-    document.getElementById('probNormalBar').style.width = (probs.normal * 100) + '%';
-    document.getElementById('probRingan').textContent = (probs.ringan * 100).toFixed(1) + '%';
-    document.getElementById('probRinganBar').style.width = (probs.ringan * 100) + '%';
+    document.getElementById('probRendah').textContent = (probs.rendah * 100).toFixed(1) + '%';
+    document.getElementById('probRendahBar').style.width = (probs.rendah * 100) + '%';
     document.getElementById('probSedang').textContent = (probs.sedang * 100).toFixed(1) + '%';
     document.getElementById('probSedangBar').style.width = (probs.sedang * 100) + '%';
-    document.getElementById('probBerat').textContent = (probs.berat * 100).toFixed(1) + '%';
-    document.getElementById('probBeratBar').style.width = (probs.berat * 100) + '%';
+    document.getElementById('probTinggi').textContent = (probs.tinggi * 100).toFixed(1) + '%';
+    document.getElementById('probTinggiBar').style.width = (probs.tinggi * 100) + '%';
   }
   addLog('✅ displayResult() complete');
 }
@@ -821,9 +793,8 @@ function switchPage(pageId, event) {
 }
 
 // ============================================
-// HISTORY & ADMIN (tidak diubah)
+// HISTORY & ADMIN
 // ============================================
-// ===== Helper: baca sensors & results untuk 1 sessionId dari IndexedDB =====
 async function getSensorsBySession(sessionId) {
   return new Promise((resolve) => {
     const tx = db.transaction(['sensors'], 'readonly');
@@ -845,29 +816,23 @@ async function getResultsBySession(sessionId) {
   });
 }
 
-// ===== Helper: sync satu sesi CLOSED ke AWS =====
 async function syncOneSessionToAWS(session) {
-  // Ambil semua sensor sampel & hasil terakhir dari IndexedDB
   const readings = await getSensorsBySession(session.sessionId);
-  // Untuk ringkasan hasil, ambil entry terakhir pada 'results' jika ada
   const results = await getResultsBySession(session.sessionId);
   let last = results?.[results.length-1];
   const payloadSession = {
     ...session,
-    // pastikan field hasil ada agar tampil di history
     lastResultCategory: last?.category ?? session.lastResultCategory ?? null,
     lastResultConfidence: last?.confidence ?? session.lastResultConfidence ?? null,
     lastProbabilities: last?.probabilities ?? session.lastProbabilities ?? null
   };
 
-  // 1) Upsert sesi
   await fetch(AWS_HISTORY.baseUrl + '/history/sync-session', {
     method: 'POST',
     headers: {'Content-Type':'application/json','x-api-key': AWS_HISTORY.apiKey},
     body: JSON.stringify({ session: payloadSession })
   });
 
-  // 2) Upload semua readings (ts, mg811, mq7, mq3, mq135)
   const slimReadings = readings.map(r => ({
     ts: r.timestamp,
     mg811: r.mg811, mq7: r.mq7, mq3: r.mq3, mq135: r.mq135
@@ -878,11 +843,9 @@ async function syncOneSessionToAWS(session) {
     body: JSON.stringify({ sessionId: session.sessionId, readings: slimReadings })
   });
 
-  // tandai sebagai tersinkron (tambah field baru di object session)
   await updateSession(session.sessionId, { awsSynced: true });
 }
 
-// ===== Sinkronkan semua sesi CLOSED yang belum tersinkron =====
 async function syncClosedSessionsToAWS() {
   const sessions = await getAllSessions();
   const toSync = sessions.filter(s => s.status === 'CLOSED' && !s.awsSynced);
@@ -896,7 +859,6 @@ async function syncClosedSessionsToAWS() {
   }
 }
 
-// ===== Ambil history dari AWS dan render ke tabel =====
 async function fetchHistoryFromAWS() {
   const res = await fetch(AWS_HISTORY.baseUrl + '/history', {
     headers: {'x-api-key': AWS_HISTORY.apiKey}
@@ -906,7 +868,6 @@ async function fetchHistoryFromAWS() {
   return data.items || [];
 }
 
-// ===== Hapus satu sesi di AWS =====
 async function deleteHistory(sessionId) {
   if (!confirm('Yakin hapus riwayat sesi ini dari AWS?')) return;
   const res = await fetch(AWS_HISTORY.baseUrl + '/history/' + encodeURIComponent(sessionId), {
@@ -915,10 +876,9 @@ async function deleteHistory(sessionId) {
   });
   if (!res.ok) { alert('Gagal hapus di AWS'); return; }
   showToast('🗑️ Riwayat dihapus');
-  await loadHistory(); // refresh
+  await loadHistory();
 }
 
-// ====== GANTI fungsi loadHistory() dengan ini ======
 async function loadHistory() {
   const tbody = document.getElementById('historyBody');
   const syncIndicator = document.getElementById('syncIndicator');
@@ -926,7 +886,6 @@ async function loadHistory() {
   syncIndicator.textContent = 'Mengambil data dari cloud...';
 
   try {
-    // Ambil history dari AWS
     const response = await fetch(AWS_HISTORY.baseUrl + '/get-history');
     if (!response.ok) throw new Error('Failed to fetch: ' + response.status);
     
@@ -938,7 +897,6 @@ async function loadHistory() {
       return;
     }
 
-    // Render tabel
     tbody.innerHTML = sessions.map(session => {
       const date = new Date(session.timestamp).toLocaleString('id-ID');
       const resultCategory = session.result?.category || session.lastResultCategory || '-';
@@ -1037,7 +995,6 @@ setInterval(()=> {
   }
 }, 5000);
 
-// Function untuk hapus session dari AWS
 async function deleteHistorySession(sessionId) {
   if (!confirm('Yakin hapus riwayat ini dari cloud?')) return;
   
@@ -1049,7 +1006,7 @@ async function deleteHistorySession(sessionId) {
     if (response.ok) {
       showToast('🗑️ Riwayat berhasil dihapus!');
       addLog(`🗑️ Deleted session: ${sessionId}`);
-      await loadHistory(); // Refresh table
+      await loadHistory();
     } else {
       throw new Error('Delete failed: ' + response.status);
     }
