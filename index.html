@@ -64,7 +64,7 @@
   <div class="container">
     <!-- LOGIN PAGE -->
     <div id="loginPage" class="page active" style="text-align:center;padding:50px">
-      <h1 style="color:#3b4998;margin-bottom:30px;">SUNSTONE</h1>
+      <h1 style="color:#3b4998;margin-bottom:30px;">🫁 SUNSTONE Admin Login</h1>
       <form id="loginForm" style="max-width:350px;margin:auto;">
         <input type="email" id="username" placeholder="Email" required style="padding:12px;width:100%;margin-bottom:15px;border:2px solid #ccc;border-radius:6px;">
         <input type="password" id="password" placeholder="Password" required style="padding:12px;width:100%;margin-bottom:15px;border:2px solid #ccc;border-radius:6px;">
@@ -274,7 +274,7 @@
 const CONFIG = {
   users: {
     'pkmkc.sunstone@gmail.com': {
-      passwordHash: '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918',
+      passwordHash: 'e3c8d05a5d6e3e6b3f9f2a3a4e3c8d05a5d6e3e6b3f9f2a3a4e3c8d05a5d6e3e',
       name: 'Admin SUNSTONE'
     }
   },
@@ -301,7 +301,9 @@ async function hashPassword(password) {
   const data = encoder.encode(password);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  console.log('Hash generated:', hashHex); // DEBUG
+  return hashHex;
 }
 
 function addLog(message) {
@@ -516,21 +518,37 @@ async function runInference(sensorData) {
 // ============================================
 document.getElementById('loginForm').addEventListener('submit', async function(e) {
   e.preventDefault();
-  const email = document.getElementById('username').value;
+  console.log('Login attempt started');
+  
+  const email = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
   
+  console.log('Email:', email);
+  console.log('Password length:', password.length);
+  
   const passwordHash = await hashPassword(password);
+  console.log('Generated hash:', passwordHash);
+  
   const user = CONFIG.users[email];
+  console.log('User found:', user ? 'YES' : 'NO');
+  
+  if (user) {
+    console.log('Expected hash:', user.passwordHash);
+    console.log('Hash match:', user.passwordHash === passwordHash);
+  }
   
   if (user && user.passwordHash === passwordHash) {
     localStorage.setItem('authToken', btoa(`${email}:${Date.now()}`));
     localStorage.setItem('userName', user.name);
+    console.log('✅ Login SUCCESS');
     addLog(`✅ Login berhasil: ${user.name}`);
     showToast('✅ Login berhasil!');
+    document.getElementById('loginError').textContent = '';
     document.getElementById('loginPage').classList.remove('active');
     document.getElementById('dashboardPage').classList.add('active');
     await restoreSession();
   } else {
+    console.log('❌ Login FAILED');
     document.getElementById('loginError').textContent = '❌ Email atau password salah!';
     addLog('❌ Login gagal: kredensial tidak valid');
   }
@@ -1003,6 +1021,15 @@ function updateStatus(service, isOk, detail) {
 window.addEventListener('load', async function() {
   addLog('🚀 SUNSTONE System initializing...');
   addLog('ℹ️  Architecture: Browser-Centric (Offline-First)');
+  
+  // TEMPORARY: Generate correct hash for password
+  const correctPassword = 'pkmkcsunstone2025';
+  const correctHash = await hashPassword(correctPassword);
+  console.log('====================================');
+  console.log('CORRECT PASSWORD HASH:');
+  console.log(correctHash);
+  console.log('====================================');
+  console.log('Copy hash di atas dan ganti di CONFIG.users');
   
   try {
     await initIndexedDB();
