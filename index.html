@@ -371,6 +371,9 @@ async function getAllSessions(){const tx=db.transaction(['sessions'],'readonly')
 // ============================================
 // MQTT
 // ============================================
+// ============================================
+// MQTT
+// ============================================
 function connectMQTT() {
   addLog('🔌 Connecting to MQTT broker...');
   try {
@@ -379,17 +382,29 @@ function connectMQTT() {
       clean: true,
       reconnectPeriod: 3000
     });
+    
     mqttClient.on('connect', () => {
       mqttConnected = true;
       addLog('✅ MQTT connected');
       updateMQTTIndicator(true);
-      mqttClient.subscribe(CONFIG.mqtt.topics.sensor, (err) => { if (!err) addLog('📡 Subscribed to: ' + CONFIG.mqtt.topics.sensor); });
+      
+      // Subscribe ke sensor data
+      mqttClient.subscribe(CONFIG.mqtt.topics.sensor, (err) => { 
+        if (!err) addLog('📡 Subscribed to: ' + CONFIG.mqtt.topics.sensor); 
+      });
+      
+      // Subscribe ke status_request dari semua device
+      mqttClient.subscribe('sunstone/esp32/+/status_request', (err) => {
+        if (!err) addLog('📡 Subscribed to status requests');
+      });
     });
+    
     mqttClient.on('message', (topic, payload) => {
       try {
         const data = JSON.parse(payload.toString());
         addLog(`📩 MQTT Message - Topic: ${topic}`);
         addLog(`📩 Payload: ${JSON.stringify(data)}`);
+        
         if (topic.includes('/sensor')) {
           addLog(`📥 Processing sensor data from: ${data.device_id}`);
           processSensorData(data);
@@ -403,9 +418,22 @@ function connectMQTT() {
         addLog('❌ Invalid JSON from MQTT: ' + e.message);
       }
     });
-    mqttClient.on('error', (err) => { addLog('❌ MQTT error: ' + err.message); updateMQTTIndicator(false); });
-    mqttClient.on('close', () => { mqttConnected = false; addLog('🔌 MQTT disconnected'); updateMQTTIndicator(false); });
-    mqttClient.on('reconnect', () => { addLog('🔄 MQTT reconnecting...'); updateMQTTIndicator('connecting'); });
+    
+    mqttClient.on('error', (err) => { 
+      addLog('❌ MQTT error: ' + err.message); 
+      updateMQTTIndicator(false); 
+    });
+    
+    mqttClient.on('close', () => { 
+      mqttConnected = false; 
+      addLog('🔌 MQTT disconnected'); 
+      updateMQTTIndicator(false); 
+    });
+    
+    mqttClient.on('reconnect', () => { 
+      addLog('🔄 MQTT reconnecting...'); 
+      updateMQTTIndicator('connecting'); 
+    });
   } catch (err) {
     addLog('❌ Failed to connect MQTT: ' + err.message);
     updateMQTTIndicator(false);
@@ -754,6 +782,7 @@ async function processSensorData(sensorData) {
   }
 }
 
+// ===== GANTI FUNGSI displayResult() YANG LAMA DENGAN INI =====
 function displayResult(result) {
   addLog('🎨 displayResult() called');
   addLog(`🎨 Category: ${result.category}, Confidence: ${result.confidence}`);
@@ -777,7 +806,36 @@ function displayResult(result) {
     document.getElementById('probTinggi').textContent = (probs.tinggi * 100).toFixed(1) + '%';
     document.getElementById('probTinggiBar').style.width = (probs.tinggi * 100) + '%';
   }
+  
+  // ===== TAMBAH BARIS INI =====
+  sendResultToESP32(result); // Kirim hasil ke ESP32
+  
   addLog('✅ displayResult() complete');
+}
+
+// ===== TAMBAHKAN FUNGSI INI SETELAH displayResult() =====
+function sendResultToESP32(result) {
+  if (!mqttClient || !mqttConnected) {
+    addLog('⚠️ Cannot send result: MQTT not connected');
+    return;
+  }
+
+  const resultPayload = {
+    action: 'result',
+    category: result.category,
+    confidence: result.confidence,
+    timestamp: new Date().toISOString()
+  };
+
+  const topic = 'sunstone/esp32/ESP01/cmd'; // Sesuaikan dengan device ID
+  mqttClient.publish(topic, JSON.stringify(resultPayload), { qos: 1 }, (err) => {
+    if (err) {
+      addLog('❌ Failed to send result to ESP32: ' + err.message);
+    } else {
+      addLog('✅ Result sent to ESP32: ' + result.category);
+      showToast('📤 Hasil dikirim ke alat', 2000);
+    }
+  });
 }
 
 // ============================================
