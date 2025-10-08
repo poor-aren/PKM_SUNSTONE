@@ -55,9 +55,12 @@
     table{width:100%;border-collapse:collapse;margin-top:15px}
     th,td{border-bottom:1px solid #ddd;padding:10px;text-align:left}
     th{background:#f8f9fa;font-weight:600}
-    .alert{padding:15px;margin:20px;border-radius:8px;font-weight:600}
-    .alert-warning{background:#fff3cd;color:#856404;border-left:4px solid #ffc107}
     .toast{position:fixed;bottom:20px;right:20px;padding:15px 20px;background:#28a745;color:#fff;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.3);display:none;z-index:1000}
+    .connection-indicator{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px}
+    .conn-connected{background:#28a745}
+    .conn-disconnected{background:#dc3545}
+    .conn-connecting{background:#ffc107;animation:blink 1s infinite}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
   </style>
 </head>
 <body>
@@ -71,7 +74,7 @@
         <button class="btn btn-primary" style="width:100%;" type="submit">Masuk</button>
       </form>
       <p id="loginError" style="color:red;margin-top:10px;"></p>
-      <p style="color:#999;font-size:13px;margin-top:20px;">Browser-Centric Architecture • Offline-First</p>
+      <p style="color:#999;font-size:13px;margin-top:20px;">Browser-Centric • Offline-First • MQTT Real-time</p>
     </div>
 
     <!-- DASHBOARD PAGE -->
@@ -118,10 +121,14 @@
       <div id="currentPatientSection" class="current-patient" style="display:none">
         <h4>👤 Pasien Aktif <span id="patientStatus" class="status-badge status-waiting">Menunggu Data</span></h4>
         <p><b>Nama:</b> <span id="currentName">-</span> | <b>Umur:</b> <span id="currentAge">-</span> | <b>HP:</b> <span id="currentPhone">-</span> | <b>Brinkman:</b> <span id="currentBrinkman">-</span></p>
+        <p style="margin-top:10px;color:#666;font-size:13px">
+          <span class="connection-indicator" id="mqttIndicator"></span>
+          <span id="mqttStatusText">Connecting to MQTT...</span>
+        </p>
         <button class="btn btn-danger" onclick="finishSession()">Selesai & Tutup Sesi</button>
       </div>
 
-      <!-- Sensor Panel (4 sensor only) -->
+      <!-- Sensor Panel -->
       <div id="sensorPanel" class="sensor-panel" style="display:none">
         <h3>📊 Data Sensor Real-time</h3>
         <p id="lastUpdate" style="color:#666;font-size:13px;margin-top:5px">Menunggu data dari ESP32...</p>
@@ -215,7 +222,7 @@
     <!-- ADMIN PAGE -->
     <div id="adminPage" class="page">
       <div class="admin-page">
-        <h1 style="color:#3b4998;margin-bottom:10px;">⚙️ ADMIN PANEL - System Status</h1>
+        <h1 style="color:#3b4998;margin-bottom:10px;">⚙️ ADMIN PANEL</h1>
         <div class="nav-links" style="margin-bottom:15px">
           <button class="nav-btn" onclick="showDashboard(event)">Dashboard</button>
           <button class="nav-btn" onclick="showHistory(event)">Riwayat</button>
@@ -227,9 +234,9 @@
         <table class="status-table">
           <tr><th>Component</th><th>Status</th><th>Detail</th></tr>
           <tr>
-            <td>🌐 Koneksi Internet</td>
-            <td id="netStatus">🟡 Checking...</td>
-            <td id="netDetail">-</td>
+            <td>🌐 MQTT Broker</td>
+            <td id="mqttBrokerStatus">🟡 Checking...</td>
+            <td id="mqttBrokerDetail">-</td>
           </tr>
           <tr>
             <td>🗄️ IndexedDB</td>
@@ -242,19 +249,13 @@
             <td id="modelDetail">-</td>
           </tr>
           <tr>
-            <td>📡 ESP32 Status</td>
+            <td>📡 ESP32 Data</td>
             <td id="esp32Status">🟡 Waiting...</td>
             <td id="esp32Detail">-</td>
-          </tr>
-          <tr>
-            <td>🔄 Pending Sync (AWS)</td>
-            <td id="syncStatus">🟡 Checking...</td>
-            <td id="syncDetail">-</td>
           </tr>
         </table>
         
         <button class="btn btn-primary" onclick="refreshSystemStatus()">Refresh Status</button>
-        <button class="btn btn-success" style="margin-left:10px" onclick="forceSyncToAWS()">Force Sync to AWS</button>
         
         <h3 style="margin-top:30px;">System Logs</h3>
         <div id="logContainer" class="log-container">
@@ -267,6 +268,7 @@
   <div id="toast" class="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.14.0/dist/ort.min.js"></script>
+<script src="https://unpkg.com/mqtt@5.3.5/dist/mqtt.min.js"></script>
 <script>
 // ============================================
 // CONFIGURATION
@@ -274,14 +276,19 @@
 const CONFIG = {
   users: {
     'pkmkc.sunstone@gmail.com': {
-      passwordHash: '8419742cd9b8e11b7860c229838a61ac32b3ba9a8aa2d6b84dfade6cf941c490',  // <-- GANTI INI!
+      passwordHash: '8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918',
       name: 'Admin SUNSTONE'
     }
   },
   modelUrl: './sunstone_model.onnx',
-  awsApiUrl: 'https://8308ialq3d.execute-api.ap-southeast-1.amazonaws.com/history',
-  sensorPort: 3000,
-  staleDataTimeout: 10000
+  mqtt: {
+    broker: 'wss://broker.hivemq.com:8884/mqtt',
+    clientId: 'sunstone_web_' + Math.random().toString(16).substr(2, 8),
+    topics: {
+      sensor: 'sunstone/esp32/+/sensor',
+      cmd: 'sunstone/esp32/ESP01/cmd'
+    }
+  }
 };
 
 // ============================================
@@ -291,7 +298,8 @@ let db = null;
 let onnxSession = null;
 let currentSessionId = null;
 let lastSensorTimestamp = null;
-let esp32Server = null;
+let mqttClient = null;
+let mqttConnected = false;
 
 // ============================================
 // UTILITY FUNCTIONS
@@ -301,9 +309,7 @@ async function hashPassword(password) {
   const data = encoder.encode(password);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  console.log('Hash generated:', hashHex); // DEBUG
-  return hashHex;
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 function addLog(message) {
@@ -331,7 +337,7 @@ function generateSessionId(name, phone) {
 }
 
 // ============================================
-// INDEXEDDB SETUP
+// INDEXEDDB
 // ============================================
 async function initIndexedDB() {
   return new Promise((resolve, reject) => {
@@ -340,7 +346,7 @@ async function initIndexedDB() {
     request.onerror = () => reject(request.error);
     request.onsuccess = () => {
       db = request.result;
-      addLog('IndexedDB initialized');
+      addLog('✅ IndexedDB initialized');
       resolve(db);
     };
     
@@ -356,33 +362,22 @@ async function initIndexedDB() {
       if (!db.objectStoreNames.contains('sensors')) {
         const sensorsStore = db.createObjectStore('sensors', { keyPath: 'id', autoIncrement: true });
         sensorsStore.createIndex('sessionId', 'sessionId', { unique: false });
-        sensorsStore.createIndex('timestamp', 'timestamp', { unique: false });
       }
       
       if (!db.objectStoreNames.contains('results')) {
         const resultsStore = db.createObjectStore('results', { keyPath: 'id', autoIncrement: true });
         resultsStore.createIndex('sessionId', 'sessionId', { unique: false });
       }
-      
-      if (!db.objectStoreNames.contains('syncQueue')) {
-        db.createObjectStore('syncQueue', { keyPath: 'id', autoIncrement: true });
-      }
-      
-      addLog('IndexedDB schema created');
     };
   });
 }
 
-// ============================================
-// DATABASE OPERATIONS
-// ============================================
 async function saveSession(sessionData) {
   const tx = db.transaction(['sessions'], 'readwrite');
   const store = tx.objectStore('sessions');
-  return new Promise((resolve, reject) => {
-    const request = store.add(sessionData);
-    request.onsuccess = () => resolve(sessionData.sessionId);
-    request.onerror = () => reject(request.error);
+  return new Promise((resolve) => {
+    store.add(sessionData);
+    resolve(sessionData.sessionId);
   });
 }
 
@@ -391,20 +386,16 @@ async function updateSession(sessionId, updates) {
   const store = tx.objectStore('sessions');
   const index = store.index('sessionId');
   
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const request = index.get(sessionId);
     request.onsuccess = () => {
       const session = request.result;
       if (session) {
         Object.assign(session, updates);
-        const updateReq = store.put(session);
-        updateReq.onsuccess = () => resolve(session);
-        updateReq.onerror = () => reject(updateReq.error);
-      } else {
-        reject(new Error('Session not found'));
+        store.put(session);
+        resolve(session);
       }
     };
-    request.onerror = () => reject(request.error);
   });
 }
 
@@ -424,9 +415,8 @@ async function saveSensorData(sensorData) {
   const tx = db.transaction(['sensors'], 'readwrite');
   const store = tx.objectStore('sensors');
   return new Promise((resolve) => {
-    const request = store.add(sensorData);
-    request.onsuccess = () => resolve();
-    request.onerror = () => resolve();
+    store.add(sensorData);
+    resolve();
   });
 }
 
@@ -434,9 +424,8 @@ async function saveResult(resultData) {
   const tx = db.transaction(['results'], 'readwrite');
   const store = tx.objectStore('results');
   return new Promise((resolve) => {
-    const request = store.add(resultData);
-    request.onsuccess = () => resolve();
-    request.onerror = () => resolve();
+    store.add(resultData);
+    resolve();
   });
 }
 
@@ -451,13 +440,86 @@ async function getAllSessions() {
   });
 }
 
-async function addToSyncQueue(type, data) {
-  const tx = db.transaction(['syncQueue'], 'readwrite');
-  const store = tx.objectStore('syncQueue');
-  return new Promise((resolve) => {
-    store.add({ type, data, attempts: 0, lastAttempt: null });
-    resolve();
-  });
+// ============================================
+// MQTT CONNECTION
+// ============================================
+function connectMQTT() {
+  addLog('🔌 Connecting to MQTT broker...');
+  
+  try {
+    mqttClient = mqtt.connect(CONFIG.mqtt.broker, {
+      clientId: CONFIG.mqtt.clientId,
+      clean: true,
+      reconnectPeriod: 3000
+    });
+    
+    mqttClient.on('connect', () => {
+      mqttConnected = true;
+      addLog('✅ MQTT connected');
+      updateMQTTIndicator(true);
+      
+      mqttClient.subscribe(CONFIG.mqtt.topics.sensor, (err) => {
+        if (!err) {
+          addLog('📡 Subscribed to: ' + CONFIG.mqtt.topics.sensor);
+        }
+      });
+    });
+    
+    mqttClient.on('message', (topic, payload) => {
+      try {
+        const data = JSON.parse(payload.toString());
+        addLog(`📥 Data received: ${data.device_id}`);
+        processSensorData(data);
+      } catch (e) {
+        addLog('❌ Invalid JSON from MQTT');
+      }
+    });
+    
+    mqttClient.on('error', (err) => {
+      addLog('❌ MQTT error: ' + err.message);
+      updateMQTTIndicator(false);
+    });
+    
+    mqttClient.on('close', () => {
+      mqttConnected = false;
+      addLog('🔌 MQTT disconnected');
+      updateMQTTIndicator(false);
+    });
+    
+    mqttClient.on('reconnect', () => {
+      addLog('🔄 MQTT reconnecting...');
+      updateMQTTIndicator('connecting');
+    });
+    
+  } catch (err) {
+    addLog('❌ Failed to connect MQTT: ' + err.message);
+    updateMQTTIndicator(false);
+  }
+}
+
+function updateMQTTIndicator(status) {
+  const indicator = document.getElementById('mqttIndicator');
+  const text = document.getElementById('mqttStatusText');
+  
+  if (!indicator || !text) return;
+  
+  if (status === true) {
+    indicator.className = 'connection-indicator conn-connected';
+    text.textContent = 'MQTT Connected';
+  } else if (status === 'connecting') {
+    indicator.className = 'connection-indicator conn-connecting';
+    text.textContent = 'MQTT Reconnecting...';
+  } else {
+    indicator.className = 'connection-indicator conn-disconnected';
+    text.textContent = 'MQTT Disconnected';
+  }
+}
+
+function sendMQTTCommand(cmd) {
+  if (mqttClient && mqttConnected) {
+    mqttClient.publish(CONFIG.mqtt.topics.cmd, JSON.stringify(cmd));
+    addLog('📤 Command sent: ' + JSON.stringify(cmd));
+  }
 }
 
 // ============================================
@@ -465,20 +527,18 @@ async function addToSyncQueue(type, data) {
 // ============================================
 async function loadONNXModel() {
   try {
-    addLog('Loading ONNX model...');
+    addLog('📦 Loading ONNX model...');
     onnxSession = await ort.InferenceSession.create(CONFIG.modelUrl);
-    addLog('✅ ONNX model loaded successfully');
+    addLog('✅ ONNX model loaded');
     return true;
   } catch (error) {
-    addLog('❌ Error loading ONNX model: ' + error.message);
-    addLog('ℹ️  Pastikan file sunstone_model.onnx ada di folder yang sama');
+    addLog('⚠️  ONNX model not found - using fallback logic');
     return false;
   }
 }
 
 async function runInference(sensorData) {
   if (!onnxSession) {
-    addLog('⚠️  ONNX model not loaded, using fallback');
     // Fallback logic
     const avg = (sensorData.mg811 + sensorData.mq7 + sensorData.mq3 + sensorData.mq135) / 4;
     if (avg < 200) return { category: 'Normal', confidence: 0.85, probabilities: {normal:0.85,ringan:0.10,sedang:0.03,berat:0.02} };
@@ -514,43 +574,29 @@ async function runInference(sensorData) {
 }
 
 // ============================================
-// LOGIN SYSTEM
+// LOGIN
 // ============================================
 document.getElementById('loginForm').addEventListener('submit', async function(e) {
   e.preventDefault();
-  console.log('Login attempt started');
   
   const email = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
-  
-  console.log('Email:', email);
-  console.log('Password length:', password.length);
-  
   const passwordHash = await hashPassword(password);
-  console.log('Generated hash:', passwordHash);
   
   const user = CONFIG.users[email];
-  console.log('User found:', user ? 'YES' : 'NO');
-  
-  if (user) {
-    console.log('Expected hash:', user.passwordHash);
-    console.log('Hash match:', user.passwordHash === passwordHash);
-  }
   
   if (user && user.passwordHash === passwordHash) {
     localStorage.setItem('authToken', btoa(`${email}:${Date.now()}`));
     localStorage.setItem('userName', user.name);
-    console.log('✅ Login SUCCESS');
-    addLog(`✅ Login berhasil: ${user.name}`);
+    addLog(`✅ Login: ${user.name}`);
     showToast('✅ Login berhasil!');
     document.getElementById('loginError').textContent = '';
     document.getElementById('loginPage').classList.remove('active');
     document.getElementById('dashboardPage').classList.add('active');
     await restoreSession();
   } else {
-    console.log('❌ Login FAILED');
     document.getElementById('loginError').textContent = '❌ Email atau password salah!';
-    addLog('❌ Login gagal: kredensial tidak valid');
+    addLog('❌ Login gagal');
   }
 });
 
@@ -561,9 +607,15 @@ function logout() {
   localStorage.removeItem('userName');
   localStorage.removeItem('SESSION_KEY');
   currentSessionId = null;
+  
+  if (mqttClient) {
+    mqttClient.end();
+    mqttClient = null;
+  }
+  
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById('loginPage').classList.add('active');
-  addLog('Logout berhasil');
+  addLog('Logout');
   showToast('Logout berhasil');
 }
 
@@ -575,12 +627,12 @@ document.getElementById('patientForm').addEventListener('submit', async function
   
   const existingSession = await getActiveSession();
   if (existingSession) {
-    if (!confirm(`⚠️ Masih ada sesi aktif: ${existingSession.name}. Tutup sesi ini?`)) return;
+    if (!confirm(`⚠️ Masih ada sesi aktif: ${existingSession.name}. Tutup?`)) return;
     await updateSession(existingSession.sessionId, { 
       status: 'CLOSED',
       finishTimestamp: new Date().toISOString()
     });
-    addLog(`Session ${existingSession.sessionId} ditutup otomatis`);
+    sendMQTTCommand({ action: 'close_session' });
   }
   
   const name = document.getElementById('patientName').value;
@@ -600,8 +652,7 @@ document.getElementById('patientForm').addEventListener('submit', async function
     device_id: 'ESP01',
     lastResultCategory: null,
     lastResultConfidence: null,
-    lastProbabilities: null,
-    syncedToAWS: false
+    lastProbabilities: null
   };
   
   await saveSession(sessionData);
@@ -616,32 +667,26 @@ document.getElementById('patientForm').addEventListener('submit', async function
   document.getElementById('currentPatientSection').style.display = 'block';
   document.getElementById('sensorPanel').style.display = 'block';
   
-  addLog(`✅ Sesi dimulai: ${name} (${sessionId})`);
+  addLog(`✅ Sesi dimulai: ${name}`);
   showToast('✅ Sesi berhasil dibuat!');
   
-  // Background sync to AWS
-  syncSessionToAWS(sessionData);
-  
-  // Start listening for ESP32 data
-  startESP32Listener();
+  document.getElementById('patientForm').reset();
 });
 
 async function finishSession() {
   if (!currentSessionId) return;
-  if (!confirm('Yakin tutup sesi ini?')) return;
+  if (!confirm('Yakin tutup sesi?')) return;
   
   await updateSession(currentSessionId, {
     status: 'CLOSED',
     finishTimestamp: new Date().toISOString()
   });
   
-  // Sync final state to AWS
-  const session = await getActiveSession();
-  if (session) syncSessionToAWS(session);
+  sendMQTTCommand({ action: 'close_session' });
   
   resetDashboard();
-  addLog(`✅ Sesi selesai: ${currentSessionId}`);
-  showToast('✅ Sesi ditutup dan disimpan!');
+  addLog(`✅ Sesi selesai`);
+  showToast('✅ Sesi ditutup!');
 }
 
 function resetDashboard() {
@@ -651,7 +696,6 @@ function resetDashboard() {
   document.getElementById('currentPatientSection').style.display = 'none';
   document.getElementById('sensorPanel').style.display = 'none';
   document.getElementById('resultSection').style.display = 'none';
-  document.getElementById('patientForm').reset();
 }
 
 async function restoreSession() {
@@ -685,66 +729,28 @@ async function restoreSession() {
         }
         
         addLog(`✅ Sesi dipulihkan: ${session.name}`);
-        startESP32Listener();
       }
       resolve();
     };
-    request.onerror = () => resolve();
   });
 }
 
 // ============================================
-// ESP32 DATA LISTENER (Browser receives HTTP POST)
+// SENSOR DATA PROCESSING
 // ============================================
-function startESP32Listener() {
-  addLog('📡 Menunggu data sensor dari ESP32...');
-  // In production: ESP32 sends HTTP POST to this browser
-  // For testing: simulate data every 2 seconds
-  
-  // IMPORTANT: This is simulation. Real implementation needs:
-  // 1. Local HTTP server (Node.js/Python) running on admin's laptop
-  // 2. ESP32 sends POST to http://LAPTOP_IP:3000/sensor
-  // 3. Server forwards to browser via WebSocket or SSE
-  
-  // For demo purposes, simulate sensor data
-  if (window.sensorSimInterval) clearInterval(window.sensorSimInterval);
-  
-  window.sensorSimInterval = setInterval(async () => {
-    if (!currentSessionId) {
-      clearInterval(window.sensorSimInterval);
-      return;
-    }
-    
-    // Simulate ESP32 sending data (4 sensors only!)
-    const sensorData = {
-      device_id: 'ESP01',
-      timestamp: new Date().toISOString(),
-      mg811: Math.floor(Math.random() * 200) + 300,  // 300-500
-      mq7: Math.floor(Math.random() * 150) + 200,    // 200-350
-      mq3: Math.floor(Math.random() * 100) + 150,    // 150-250
-      mq135: Math.floor(Math.random() * 200) + 350   // 350-550
-    };
-    
-    await processSensorData(sensorData);
-  }, 2000);
-}
-
 async function processSensorData(sensorData) {
   if (!currentSessionId) return;
   
-  // Validate timestamp (anti-bleed)
-  const sensorTime = new Date(sensorData.timestamp);
-  lastSensorTimestamp = sensorTime;
+  lastSensorTimestamp = new Date();
   
   // Save to IndexedDB
   const sensorRecord = {
     sessionId: currentSessionId,
-    timestamp: sensorData.timestamp,
+    timestamp: sensorData.ts || new Date().toISOString(),
     mg811: sensorData.mg811,
     mq7: sensorData.mq7,
     mq3: sensorData.mq3,
-    mq135: sensorData.mq135,
-    syncedToAWS: false
+    mq135: sensorData.mq135
   };
   await saveSensorData(sensorRecord);
   
@@ -754,39 +760,32 @@ async function processSensorData(sensorData) {
   document.getElementById('mq3').textContent = sensorData.mq3;
   document.getElementById('mq135').textContent = sensorData.mq135;
   
-  const now = new Date();
-  const secondsAgo = Math.floor((now - lastSensorTimestamp) / 1000);
-  document.getElementById('lastUpdate').textContent = `⏱️ Update: ${secondsAgo} detik lalu`;
-  document.getElementById('lastUpdate').style.color = '#666';
+  document.getElementById('lastUpdate').textContent = '⏱️ Update: baru saja';
+  document.getElementById('lastUpdate').style.color = '#28a745';
   document.getElementById('patientStatus').textContent = 'Processing';
   document.getElementById('patientStatus').className = 'status-badge status-processing';
   
-  // Run ONNX inference (INSTANT in browser!)
+  // Run inference
   const result = await runInference(sensorData);
   
   if (result) {
-    // Save result
     const resultData = {
       sessionId: currentSessionId,
       timestamp: new Date().toISOString(),
       category: result.category,
       confidence: result.confidence,
-      probabilities: result.probabilities,
-      syncedToAWS: false
+      probabilities: result.probabilities
     };
     await saveResult(resultData);
     
-    // Update session metadata
     await updateSession(currentSessionId, {
       lastResultCategory: result.category,
       lastResultConfidence: result.confidence,
       lastProbabilities: result.probabilities
     });
     
-    // Display result
     displayResult(result);
-    
-    addLog(`🔬 Inference: ${result.category} (${(result.confidence * 100).toFixed(1)}%)`);
+    addLog(`🔬 Hasil: ${result.category} (${(result.confidence * 100).toFixed(1)}%)`);
   }
 }
 
@@ -816,68 +815,7 @@ function displayResult(result) {
 }
 
 // ============================================
-// AWS SYNC (Background, Non-blocking)
-// ============================================
-async function syncSessionToAWS(sessionData) {
-  if (!navigator.onLine) {
-    await addToSyncQueue('session', sessionData);
-    addLog('⚠️  Offline - ditambahkan ke sync queue');
-    return;
-  }
-  
-  try {
-    const response = await fetch(CONFIG.awsApiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: sessionData.sessionId,
-        name: sessionData.name,
-        age: sessionData.age,
-        phone: sessionData.phone,
-        brinkman: sessionData.brinkman,
-        timestamp: sessionData.timestamp,
-        status: sessionData.status,
-        lastResultCategory: sessionData.lastResultCategory,
-        lastResultConfidence: sessionData.lastResultConfidence
-      })
-    });
-    
-    if (response.ok) {
-      await updateSession(sessionData.sessionId, { syncedToAWS: true });
-      addLog('☁️  Synced to AWS: ' + sessionData.sessionId);
-    } else {
-      await addToSyncQueue('session', sessionData);
-      addLog('⚠️  AWS sync failed, added to queue');
-    }
-  } catch (error) {
-    await addToSyncQueue('session', sessionData);
-    addLog('⚠️  AWS sync error: ' + error.message);
-  }
-}
-
-async function forceSyncToAWS() {
-  if (!navigator.onLine) {
-    showToast('❌ Tidak ada koneksi internet');
-    return;
-  }
-  
-  addLog('🔄 Force sync to AWS...');
-  const sessions = await getAllSessions();
-  let synced = 0;
-  
-  for (const session of sessions) {
-    if (!session.syncedToAWS) {
-      await syncSessionToAWS(session);
-      synced++;
-    }
-  }
-  
-  showToast(`✅ ${synced} sesi berhasil disinkronkan`);
-  addLog(`✅ Force sync complete: ${synced} items`);
-}
-
-// ============================================
-// PAGE NAVIGATION
+// NAVIGATION
 // ============================================
 function showDashboard(e) {switchPage('dashboardPage', e);}
 function showHistory(e) {switchPage('historyPage', e); loadHistory();}
@@ -901,21 +839,11 @@ async function loadHistory() {
   
   try {
     const sessions = await getAllSessions();
-    
-    // Sort by timestamp descending
     sessions.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
     
     if (sessions.length === 0) {
       tbody.innerHTML = '<tr><td colspan="8" style="text-align:center">Belum ada data</td></tr>';
-      document.getElementById('syncIndicator').textContent = '';
       return;
-    }
-    
-    const pendingSync = sessions.filter(s => !s.syncedToAWS).length;
-    if (pendingSync > 0) {
-      document.getElementById('syncIndicator').innerHTML = `📱 Mode offline (${pendingSync} sesi belum sync)`;
-    } else {
-      document.getElementById('syncIndicator').innerHTML = `🌐 Tersinkron dengan cloud`;
     }
     
     tbody.innerHTML = sessions.map(session => {
@@ -937,63 +865,50 @@ async function loadHistory() {
       `;
     }).join('');
     
-    addLog(`📋 History loaded: ${sessions.length} records`);
+    addLog(`📋 History: ${sessions.length} records`);
   } catch (err) {
     tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:red">Error: ${err.message}</td></tr>`;
-    addLog('❌ Error loading history: ' + err.message);
   }
 }
 
 // ============================================
-// ADMIN PANEL
+// ADMIN
 // ============================================
 async function refreshSystemStatus() {
-  addLog('🔍 Checking system status...');
+  addLog('🔍 Checking system...');
   
-  // Check Internet
-  if (navigator.onLine) {
-    updateStatus('net', true, 'Online');
+  // MQTT
+  if (mqttConnected) {
+    updateStatus('mqttBroker', true, 'Connected to ' + CONFIG.mqtt.broker);
   } else {
-    updateStatus('net', false, 'Offline');
+    updateStatus('mqttBroker', false, 'Disconnected');
   }
   
-  // Check IndexedDB
+  // IndexedDB
   if (db) {
     const sessions = await getAllSessions();
-    const size = Math.floor(JSON.stringify(sessions).length / 1024);
-    updateStatus('db', true, `${sessions.length} sessions (${size}KB)`);
+    updateStatus('db', true, `${sessions.length} sessions`);
   } else {
     updateStatus('db', false, 'Not initialized');
   }
   
-  // Check ONNX Model
+  // ONNX
   if (onnxSession) {
-    updateStatus('model', true, 'Loaded and ready');
+    updateStatus('model', true, 'Loaded');
   } else {
-    updateStatus('model', false, 'Not loaded - using fallback');
+    updateStatus('model', null, 'Using fallback');
   }
   
-  // Check ESP32
+  // ESP32
   if (lastSensorTimestamp) {
     const secondsAgo = Math.floor((new Date() - lastSensorTimestamp) / 1000);
-    if (secondsAgo < 5) {
+    if (secondsAgo < 10) {
       updateStatus('esp32', true, `Active (${secondsAgo}s ago)`);
-    } else if (secondsAgo < 30) {
-      updateStatus('esp32', null, `Idle (${secondsAgo}s ago)`);
     } else {
-      updateStatus('esp32', false, `Disconnected (${secondsAgo}s ago)`);
+      updateStatus('esp32', null, `Idle (${secondsAgo}s ago)`);
     }
   } else {
-    updateStatus('esp32', null, 'Waiting for data');
-  }
-  
-  // Check Pending Sync
-  const sessions = await getAllSessions();
-  const pendingSync = sessions.filter(s => !s.syncedToAWS).length;
-  if (pendingSync === 0) {
-    updateStatus('sync', true, 'All synced');
-  } else {
-    updateStatus('sync', null, `${pendingSync} items pending`);
+    updateStatus('esp32', null, 'No data yet');
   }
 }
 
@@ -1016,64 +931,42 @@ function updateStatus(service, isOk, detail) {
 }
 
 // ============================================
-// INITIALIZATION
+// INIT
 // ============================================
 window.addEventListener('load', async function() {
-  addLog('🚀 SUNSTONE System initializing...');
-  addLog('ℹ️  Architecture: Browser-Centric (Offline-First)');
-  
-  // TEMPORARY: Generate correct hash for password
-  const correctPassword = 'pkmkcsunstone2025';
-  const correctHash = await hashPassword(correctPassword);
-  console.log('====================================');
-  console.log('CORRECT PASSWORD HASH:');
-  console.log(correctHash);
-  console.log('====================================');
-  console.log('Copy hash di atas dan ganti di CONFIG.users');
+  addLog('🚀 SUNSTONE initializing...');
   
   try {
     await initIndexedDB();
   } catch (err) {
-    addLog('❌ Failed to initialize IndexedDB: ' + err.message);
-    alert('Database initialization failed. Please check console.');
+    addLog('❌ IndexedDB failed: ' + err.message);
+    alert('Database error!');
     return;
   }
   
   await loadONNXModel();
+  connectMQTT();
   
   const authToken = localStorage.getItem('authToken');
   if (authToken) {
-    addLog('✅ Auto-login detected');
     document.getElementById('loginPage').classList.remove('active');
     document.getElementById('dashboardPage').classList.add('active');
     await restoreSession();
   }
   
-  addLog('✅ SUNSTONE System ready!');
+  addLog('✅ System ready!');
 });
 
-// Monitor stale sensor data
+// Monitor stale data
 setInterval(() => {
   if (currentSessionId && lastSensorTimestamp) {
-    const timeSinceUpdate = Date.now() - lastSensorTimestamp.getTime();
-    if (timeSinceUpdate > CONFIG.staleDataTimeout) {
-      document.getElementById('lastUpdate').innerHTML = '⚠️ Tidak ada data sensor >10 detik<br><small>Tunggu pasien meniup sensor atau cek koneksi ESP32</small>';
+    const secondsAgo = Math.floor((new Date() - lastSensorTimestamp) / 1000);
+    if (secondsAgo > 10) {
+      document.getElementById('lastUpdate').innerHTML = '⚠️ No data >10s';
       document.getElementById('lastUpdate').style.color = '#dc3545';
     }
   }
 }, 5000);
-
-// Handle online/offline events
-window.addEventListener('online', () => {
-  addLog('🌐 Internet connected');
-  showToast('🌐 Kembali online - sync otomatis dimulai');
-  forceSyncToAWS();
-});
-
-window.addEventListener('offline', () => {
-  addLog('📱 Internet disconnected - entering offline mode');
-  showToast('📱 Mode offline aktif');
-});
 </script>
 </body>
 </html>
