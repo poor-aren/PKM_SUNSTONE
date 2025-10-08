@@ -627,12 +627,8 @@ document.getElementById('patientForm').addEventListener('submit', async function
   
   const existingSession = await getActiveSession();
   if (existingSession) {
-    if (!confirm(`⚠️ Masih ada sesi aktif: ${existingSession.name}. Tutup?`)) return;
-    await updateSession(existingSession.sessionId, { 
-      status: 'CLOSED',
-      finishTimestamp: new Date().toISOString()
-    });
-    sendMQTTCommand({ action: 'close_session' });
+    alert(`⚠️ Masih ada sesi aktif: ${existingSession.name}. Tutup sesi tersebut dulu!`);
+    return; // TIDAK BOLEH buat sesi baru kalau masih ada yang OPEN
   }
   
   const name = document.getElementById('patientName').value;
