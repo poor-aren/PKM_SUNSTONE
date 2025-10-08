@@ -302,9 +302,10 @@ let mqttClient = null;
 let mqttConnected = false;
 
 // === AWS HISTORY SYNC CONFIG (History only) ===
+// === AWS HISTORY SYNC CONFIG (History only) ===
 const AWS_HISTORY = {
-  baseUrl: 'https://c957hybvo3.execute-api.ap-southeast-1.amazonaws.com',
-  apiKey: '' // kosong karena API Gateway tidak pakai key
+  baseUrl: 'https://f385p6o1z9.execute-api.ap-southeast-1.amazonaws.com',
+  apiKey: ''
 };
 
 
@@ -631,15 +632,56 @@ async function finishSession() {
   });
   sendMQTTCommand({ action: 'close_session' });
 
-  // 🔑 langsung sync ke AWS
+  // 🔑 SYNC KE AWS
   const allSessions = await getAllSessions();
   const closed = allSessions.find(s => s.sessionId === currentSessionId && s.status === 'CLOSED');
   if (closed) {
     try {
-      await syncOneSessionToAWS(closed);
-      addLog(`☁️ Session uploaded to AWS: ${closed.sessionId}`);
+      // Ambil semua sensor readings untuk sesi ini
+      const sensors = await getSensorsBySession(currentSessionId);
+      const results = await getResultsBySession(currentSessionId);
+      
+      // Format data untuk AWS
+      const sensorReadings = sensors.map(s => ({
+        timestamp: s.timestamp,
+        flowRate: s.mg811 || 0,
+        volume: s.mq7 || 0,
+        pressure: s.mq3 || 0
+      }));
+
+      const payload = {
+        sessionId: closed.sessionId,
+        timestamp: closed.timestamp,
+        patientData: {
+          name: closed.name,
+          age: closed.age,
+          gender: 'L', // default
+          phone: closed.phone,
+          brinkman: closed.brinkman
+        },
+        sensorReadings: sensorReadings,
+        result: {
+          category: closed.lastResultCategory || 'Unknown',
+          confidence: closed.lastResultConfidence || 0,
+          probabilities: closed.lastProbabilities || {}
+        }
+      };
+
+      const response = await fetch(AWS_HISTORY.baseUrl + '/save-session', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+      });
+
+      if (response.ok) {
+        addLog(`☁️ Session uploaded to AWS: ${closed.sessionId}`);
+        showToast('☁️ Data tersimpan ke cloud!', 2000);
+      } else {
+        throw new Error('AWS sync failed: ' + response.status);
+      }
     } catch (e) {
       addLog(`❌ Sync error: ${e.message}`);
+      showToast('⚠️ Gagal sync ke cloud', 3000);
     }
   }
 
@@ -881,45 +923,53 @@ async function loadHistory() {
   const tbody = document.getElementById('historyBody');
   const syncIndicator = document.getElementById('syncIndicator');
   tbody.innerHTML = '<tr><td colspan="9" style="text-align:center">Loading...</td></tr>';
-  syncIndicator.textContent = 'Sinkronisasi cloud...';
+  syncIndicator.textContent = 'Mengambil data dari cloud...';
 
   try {
-    // 1) Sinkronkan sesi CLOSED lokal yg belum ke AWS
-    await syncClosedSessionsToAWS();
-
-    // 2) Ambil daftar history dari AWS
-    const items = await fetchHistoryFromAWS();
-
-    // 3) Render tabel
-    if (items.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center">Belum ada data</td></tr>';
-    } else {
-      tbody.innerHTML = items.map(session => {
-        const date = new Date(session.timestamp).toLocaleString('id-ID');
-        const statusColor = session.status === 'OPEN' ? '#28a745' : '#6c757d';
-        const statusIcon = session.status === 'OPEN' ? '🟢' : '🔴';
-        const conf = session.lastResultConfidence != null ? (Number(session.lastResultConfidence) * 100).toFixed(1) + '%' : '-';
-        return `
-          <tr>
-            <td>${date}</td>
-            <td>${session.name}</td>
-            <td>${session.age}</td>
-            <td>${session.phone}</td>
-            <td>${session.brinkman}</td>
-            <td>${session.lastResultCategory || '-'}</td>
-            <td>${conf}</td>
-            <td style="color:${statusColor};font-weight:600">${statusIcon} ${session.status}</td>
-            <td>
-              <button class="btn btn-danger btn-sm" onclick="deleteHistory('${session.sessionId}')">Hapus</button>
-            </td>
-          </tr>`;
-      }).join('');
+    // Ambil history dari AWS
+    const response = await fetch(AWS_HISTORY.baseUrl + '/get-history');
+    if (!response.ok) throw new Error('Failed to fetch: ' + response.status);
+    
+    const sessions = await response.json();
+    
+    if (!sessions || sessions.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center">Belum ada riwayat</td></tr>';
+      syncIndicator.textContent = 'Tidak ada data';
+      return;
     }
-    syncIndicator.textContent = `Sinkronisasi OK • ${new Date().toLocaleTimeString('id-ID')}`;
-    addLog(`📋 History (AWS): ${items.length} records`);
+
+    // Render tabel
+    tbody.innerHTML = sessions.map(session => {
+      const date = new Date(session.timestamp).toLocaleString('id-ID');
+      const resultCategory = session.result?.category || session.lastResultCategory || '-';
+      const resultConfidence = session.result?.confidence || session.lastResultConfidence;
+      const conf = resultConfidence != null ? (Number(resultConfidence) * 100).toFixed(1) + '%' : '-';
+      
+      return `
+        <tr>
+          <td>${date}</td>
+          <td>${session.patientName || session.name || '-'}</td>
+          <td>${session.patientAge || session.age || '-'}</td>
+          <td>${session.patientData?.phone || session.phone || '-'}</td>
+          <td>${session.patientData?.brinkman || session.brinkman || '-'}</td>
+          <td><strong>${resultCategory}</strong></td>
+          <td>${conf}</td>
+          <td>
+            <span class="status-badge ${session.status === 'OPEN' ? 'status-processing' : 'status-completed'}">
+              ${session.status || 'CLOSED'}
+            </span>
+          </td>
+          <td>
+            <button class="btn btn-danger btn-sm" onclick="deleteHistorySession('${session.sessionId}')">🗑️ Hapus</button>
+          </td>
+        </tr>`;
+    }).join('');
+
+    syncIndicator.textContent = `✅ ${sessions.length} data • ${new Date().toLocaleTimeString('id-ID')}`;
+    addLog(`📋 Loaded ${sessions.length} sessions from AWS`);
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:red">Error: ${err.message}</td></tr>`;
-    syncIndicator.textContent = 'Error sinkronisasi';
+    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:red">❌ Error: ${err.message}</td></tr>`;
+    syncIndicator.textContent = '❌ Gagal mengambil data';
     addLog('❌ loadHistory error: ' + err.message);
   }
 }
@@ -986,6 +1036,28 @@ setInterval(()=> {
     }
   }
 }, 5000);
+
+// Function untuk hapus session dari AWS
+async function deleteHistorySession(sessionId) {
+  if (!confirm('Yakin hapus riwayat ini dari cloud?')) return;
+  
+  try {
+    const response = await fetch(AWS_HISTORY.baseUrl + '/delete-session/' + encodeURIComponent(sessionId), {
+      method: 'DELETE'
+    });
+
+    if (response.ok) {
+      showToast('🗑️ Riwayat berhasil dihapus!');
+      addLog(`🗑️ Deleted session: ${sessionId}`);
+      await loadHistory(); // Refresh table
+    } else {
+      throw new Error('Delete failed: ' + response.status);
+    }
+  } catch (err) {
+    showToast('❌ Gagal menghapus: ' + err.message, 3000);
+    addLog('❌ Delete error: ' + err.message);
+  }
+}
 </script>
 </body>
 </html>
