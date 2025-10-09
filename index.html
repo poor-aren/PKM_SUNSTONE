@@ -69,6 +69,40 @@
     .sensor-readings-table td{padding:5px;border-bottom:1px solid #ddd}
     .expand-btn{background:#3b4998;color:white;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px}
     .expand-btn:hover{background:#2d3875}
+    @media (max-width: 768px) {
+      body{padding:10px}
+      .container{padding:10px}
+      .dashboard-header{padding:15px;flex-direction:column;align-items:flex-start}
+      .dashboard-title{font-size:24px;margin-bottom:10px}
+      .nav-links{width:100%;flex-direction:column;gap:8px}
+      .nav-btn,.btn{width:100%;margin:0;text-align:center}
+      .add-patient-section,.current-patient,.sensor-panel{padding:15px;margin:10px}
+      .form-row{flex-direction:column;gap:10px}
+      .form-group{width:100%}
+      .form-group input{font-size:16px}
+      .sensor-grid{grid-template-columns:repeat(2,1fr);gap:10px}
+      .sensor-card{padding:10px}
+      .sensor-value{font-size:20px}
+      .result-section{padding:15px;margin:10px}
+      .result-category{font-size:28px}
+      .result-confidence{font-size:16px}
+      table{font-size:12px;display:block;overflow-x:auto}
+      th,td{padding:8px;font-size:11px}
+      .status-table{display:block;overflow-x:auto}
+      .log-container{max-height:200px;font-size:11px}
+      .admin-page{padding:10px}
+      .expandable-content{font-size:11px}
+      .sensor-readings-table{font-size:10px}
+      .sensor-readings-table th,.sensor-readings-table td{padding:4px}
+      .toast{bottom:10px;right:10px;left:10px;font-size:14px}
+    }
+    @media (max-width: 480px) {
+      .dashboard-title{font-size:20px}
+      .sensor-grid{grid-template-columns:1fr;gap:8px}
+      .sensor-value{font-size:18px}
+      .result-category{font-size:24px}
+      table,th,td{font-size:10px;padding:6px}
+    }
   </style>
 </head>
 <body>
