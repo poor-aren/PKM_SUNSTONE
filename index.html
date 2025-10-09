@@ -61,6 +61,14 @@
     .conn-disconnected{background:#dc3545}
     .conn-connecting{background:#ffc107;animation:blink 1s infinite}
     @keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
+    .expandable-row{background:#f8f9fa;display:none}
+    .expandable-row.show{display:table-row}
+    .expandable-content{padding:15px;font-size:12px}
+    .sensor-readings-table{width:100%;margin-top:10px;font-size:11px}
+    .sensor-readings-table th{background:#e3f2fd;padding:5px}
+    .sensor-readings-table td{padding:5px;border-bottom:1px solid #ddd}
+    .expand-btn{background:#3b4998;color:white;border:none;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px}
+    .expand-btn:hover{background:#2d3875}
   </style>
 </head>
 <body>
@@ -109,8 +117,12 @@
               <input id="patientPhone" type="text" required pattern="[0-9]{10,13}" placeholder="08123456789">
             </div>
             <div class="form-group">
-              <label>Index Brinkman</label>
-              <input id="brinkmanIndex" type="number" required min="0" placeholder="Contoh: 600">
+              <label>Batang Rokok per Hari</label>
+              <input id="brinkmanCigPerDay" type="number" required min="0" placeholder="Contoh: 20">
+            </div>
+            <div class="form-group">
+              <label>Lama Merokok (tahun)</label>
+              <input id="brinkmanYearsSmoke" type="number" required min="0" placeholder="Contoh: 30">
             </div>
           </div>
           <button class="btn btn-primary" type="submit">Mulai Sesi</button>
@@ -371,9 +383,6 @@ async function getAllSessions(){const tx=db.transaction(['sessions'],'readonly')
 // ============================================
 // MQTT
 // ============================================
-// ============================================
-// MQTT
-// ============================================
 function connectMQTT() {
   addLog('🔌 Connecting to MQTT broker...');
   try {
@@ -388,12 +397,10 @@ function connectMQTT() {
       addLog('✅ MQTT connected');
       updateMQTTIndicator(true);
       
-      // Subscribe ke sensor data
       mqttClient.subscribe(CONFIG.mqtt.topics.sensor, (err) => { 
         if (!err) addLog('📡 Subscribed to: ' + CONFIG.mqtt.topics.sensor); 
       });
       
-      // Subscribe ke status_request dari semua device
       mqttClient.subscribe('sunstone/esp32/+/status_request', (err) => {
         if (!err) addLog('📡 Subscribed to status requests');
       });
@@ -475,7 +482,7 @@ async function handleStatusRequest(data) {
 }
 
 // ============================================
-// ONNX MODEL - UBAH LABEL MAPPING
+// ONNX MODEL
 // ============================================
 async function loadONNXModel() {
   try {
@@ -496,7 +503,6 @@ async function runInference(sensorData) {
   addLog('🤖 Running inference (3-class model)...');
   addLog(`📊 Input data: MG811=${sensorData.mg811}, MQ7=${sensorData.mq7}, MQ3=${sensorData.mq3}, MQ135=${sensorData.mq135}`);
 
-  // UBAH: Label mapping dari 3 kelas model ke UI baru
   const classLabels = ['Rendah', 'Sedang', 'Tinggi'];
 
   if (!onnxSession) {
@@ -604,10 +610,13 @@ document.getElementById('patientForm').addEventListener('submit', async function
   const name = document.getElementById('patientName').value;
   const age = parseInt(document.getElementById('patientAge').value);
   const phone = document.getElementById('patientPhone').value;
-  const brinkman = parseInt(document.getElementById('brinkmanIndex').value);
+  const brinkmanCigPerDay = parseInt(document.getElementById('brinkmanCigPerDay').value);
+  const brinkmanYearsSmoke = parseInt(document.getElementById('brinkmanYearsSmoke').value);
   const sessionId = generateSessionId(name, phone);
   const sessionData = {
-    sessionId, name, age, phone, brinkman, status:'OPEN',
+    sessionId, name, age, phone, 
+    brinkmanCigPerDay, brinkmanYearsSmoke,
+    status:'OPEN',
     timestamp:new Date().toISOString(), device_id:'ESP01',
     lastResultCategory:null, lastResultConfidence:null, lastProbabilities:null
   };
@@ -617,7 +626,7 @@ document.getElementById('patientForm').addEventListener('submit', async function
   document.getElementById('currentName').textContent = name;
   document.getElementById('currentAge').textContent = age;
   document.getElementById('currentPhone').textContent = phone;
-  document.getElementById('currentBrinkman').textContent = brinkman;
+  document.getElementById('currentBrinkman').textContent = `${brinkmanCigPerDay} btg/hari × ${brinkmanYearsSmoke} thn`;
   document.getElementById('addPatientSection').style.display = 'none';
   document.getElementById('currentPatientSection').style.display = 'block';
   document.getElementById('sensorPanel').style.display = 'block';
@@ -655,9 +664,10 @@ async function finishSession() {
       
       const sensorReadings = sensors.map(s => ({
         timestamp: s.timestamp,
-        flowRate: s.mg811 || 0,
-        volume: s.mq7 || 0,
-        pressure: s.mq3 || 0
+        mg811: s.mg811 || 0,
+        mq7: s.mq7 || 0,
+        mq3: s.mq3 || 0,
+        mq135: s.mq135 || 0
       }));
 
       const payload = {
@@ -668,7 +678,8 @@ async function finishSession() {
           age: closed.age,
           gender: 'L',
           phone: closed.phone,
-          brinkman: closed.brinkman
+          brinkmanCigPerDay: closed.brinkmanCigPerDay,
+          brinkmanYearsSmoke: closed.brinkmanYearsSmoke
         },
         sensorReadings: sensorReadings,
         result: {
@@ -726,7 +737,7 @@ async function restoreSession() {
         document.getElementById('currentName').textContent = session.name;
         document.getElementById('currentAge').textContent = session.age;
         document.getElementById('currentPhone').textContent = session.phone;
-        document.getElementById('currentBrinkman').textContent = session.brinkman;
+        document.getElementById('currentBrinkman').textContent = `${session.brinkmanCigPerDay} btg/hari × ${session.brinkmanYearsSmoke} thn`;
         document.getElementById('addPatientSection').style.display = 'none';
         document.getElementById('currentPatientSection').style.display = 'block';
         document.getElementById('sensorPanel').style.display = 'block';
@@ -790,7 +801,6 @@ async function processSensorData(sensorData) {
   }
 }
 
-// ===== GANTI FUNGSI displayResult() YANG LAMA DENGAN INI =====
 function displayResult(result) {
   addLog('🎨 displayResult() called');
   addLog(`🎨 Category: ${result.category}, Confidence: ${result.confidence}`);
@@ -815,13 +825,11 @@ function displayResult(result) {
     document.getElementById('probTinggiBar').style.width = (probs.tinggi * 100) + '%';
   }
   
-  // ===== TAMBAH BARIS INI =====
-  sendResultToESP32(result); // Kirim hasil ke ESP32
+  sendResultToESP32(result);
   
   addLog('✅ displayResult() complete');
 }
 
-// ===== TAMBAHKAN FUNGSI INI SETELAH displayResult() =====
 function sendResultToESP32(result) {
   if (!mqttClient || !mqttConnected) {
     addLog('⚠️ Cannot send result: MQTT not connected');
@@ -835,7 +843,7 @@ function sendResultToESP32(result) {
     timestamp: new Date().toISOString()
   };
 
-  const topic = 'sunstone/esp32/ESP01/cmd'; // Sesuaikan dengan device ID
+  const topic = 'sunstone/esp32/ESP01/cmd';
   mqttClient.publish(topic, JSON.stringify(resultPayload), { qos: 1 }, (err) => {
     if (err) {
       addLog('❌ Failed to send result to ESP32: ' + err.message);
@@ -882,67 +890,11 @@ async function getResultsBySession(sessionId) {
   });
 }
 
-async function syncOneSessionToAWS(session) {
-  const readings = await getSensorsBySession(session.sessionId);
-  const results = await getResultsBySession(session.sessionId);
-  let last = results?.[results.length-1];
-  const payloadSession = {
-    ...session,
-    lastResultCategory: last?.category ?? session.lastResultCategory ?? null,
-    lastResultConfidence: last?.confidence ?? session.lastResultConfidence ?? null,
-    lastProbabilities: last?.probabilities ?? session.lastProbabilities ?? null
-  };
-
-  await fetch(AWS_HISTORY.baseUrl + '/history/sync-session', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json','x-api-key': AWS_HISTORY.apiKey},
-    body: JSON.stringify({ session: payloadSession })
-  });
-
-  const slimReadings = readings.map(r => ({
-    ts: r.timestamp,
-    mg811: r.mg811, mq7: r.mq7, mq3: r.mq3, mq135: r.mq135
-  }));
-  await fetch(AWS_HISTORY.baseUrl + '/history/sync-readings', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json','x-api-key': AWS_HISTORY.apiKey},
-    body: JSON.stringify({ sessionId: session.sessionId, readings: slimReadings })
-  });
-
-  await updateSession(session.sessionId, { awsSynced: true });
-}
-
-async function syncClosedSessionsToAWS() {
-  const sessions = await getAllSessions();
-  const toSync = sessions.filter(s => s.status === 'CLOSED' && !s.awsSynced);
-  for (const s of toSync) {
-    try {
-      await syncOneSessionToAWS(s);
-      addLog(`☁️ Synced to AWS: ${s.sessionId}`);
-    } catch (e) {
-      addLog(`❌ Sync failed (${s.sessionId}): ${e.message}`);
-    }
+function toggleReadings(sessionId) {
+  const row = document.getElementById('readings-' + sessionId);
+  if (row) {
+    row.classList.toggle('show');
   }
-}
-
-async function fetchHistoryFromAWS() {
-  const res = await fetch(AWS_HISTORY.baseUrl + '/history', {
-    headers: {'x-api-key': AWS_HISTORY.apiKey}
-  });
-  if (!res.ok) throw new Error('Fetch history failed: ' + res.status);
-  const data = await res.json();
-  return data.items || [];
-}
-
-async function deleteHistory(sessionId) {
-  if (!confirm('Yakin hapus riwayat sesi ini dari AWS?')) return;
-  const res = await fetch(AWS_HISTORY.baseUrl + '/history/' + encodeURIComponent(sessionId), {
-    method: 'DELETE',
-    headers: {'x-api-key': AWS_HISTORY.apiKey}
-  });
-  if (!res.ok) { alert('Gagal hapus di AWS'); return; }
-  showToast('🗑️ Riwayat dihapus');
-  await loadHistory();
 }
 
 async function loadHistory() {
@@ -969,13 +921,20 @@ async function loadHistory() {
       const resultConfidence = session.result?.confidence || session.lastResultConfidence;
       const conf = resultConfidence != null ? (Number(resultConfidence) * 100).toFixed(1) + '%' : '-';
       
-      return `
+      const cigPerDay = session.brinkmanCigPerDay || session.patientData?.brinkmanCigPerDay || '-';
+      const yearsSmoke = session.brinkmanYearsSmoke || session.patientData?.brinkmanYearsSmoke || '-';
+      const brinkmanDisplay = `${cigPerDay} btg/hari | ${yearsSmoke} thn`;
+      
+      const readings = session.sensorReadings || [];
+      const hasReadings = readings.length > 1;
+      
+      let mainRow = `
         <tr>
           <td>${date}</td>
           <td>${session.patientName || session.name || '-'}</td>
           <td>${session.patientAge || session.age || '-'}</td>
           <td>${session.patientData?.phone || session.phone || '-'}</td>
-          <td>${session.patientData?.brinkman || session.brinkman || '-'}</td>
+          <td>${brinkmanDisplay}</td>
           <td><strong>${resultCategory}</strong></td>
           <td>${conf}</td>
           <td>
@@ -984,9 +943,45 @@ async function loadHistory() {
             </span>
           </td>
           <td>
-            <button class="btn btn-danger btn-sm" onclick="deleteHistorySession('${session.sessionId}')">🗑️ Hapus</button>
+            ${hasReadings ? `<button class="expand-btn" onclick="toggleReadings('${session.sessionId}')">📊 ${readings.length} data</button>` : ''}
+            <button class="btn btn-danger btn-sm" onclick="deleteHistorySession('${session.sessionId}')">🗑️</button>
           </td>
         </tr>`;
+      
+      if (hasReadings) {
+        mainRow += `
+        <tr id="readings-${session.sessionId}" class="expandable-row">
+          <td colspan="9">
+            <div class="expandable-content">
+              <strong>📊 Data Sensor (${readings.length} pembacaan)</strong>
+              <table class="sensor-readings-table">
+                <thead>
+                  <tr>
+                    <th>Waktu</th>
+                    <th>MG-811</th>
+                    <th>MQ-7</th>
+                    <th>MQ-3</th>
+                    <th>MQ-135</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${readings.map(r => `
+                    <tr>
+                      <td>${new Date(r.readingTimestamp || r.timestamp).toLocaleTimeString('id-ID')}</td>
+                      <td>${r.mg811 || 0}</td>
+                      <td>${r.mq7 || 0}</td>
+                      <td>${r.mq3 || 0}</td>
+                      <td>${r.mq135 || 0}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </td>
+        </tr>`;
+      }
+      
+      return mainRow;
     }).join('');
 
     syncIndicator.textContent = `✅ ${sessions.length} data • ${new Date().toLocaleTimeString('id-ID')}`;
@@ -1021,6 +1016,27 @@ function updateStatus(service, isOk, detail) {
   else if (isOk === false) { statusEl.textContent='🔴 Error'; statusEl.style.color='red'; }
   else { statusEl.textContent='🟡 Warning'; statusEl.style.color='orange'; }
   if (detailEl) detailEl.textContent = detail || '-';
+}
+
+async function deleteHistorySession(sessionId) {
+  if (!confirm('Yakin hapus riwayat ini dari cloud?')) return;
+  
+  try {
+    const response = await fetch(AWS_HISTORY.baseUrl + '/delete-session/' + encodeURIComponent(sessionId), {
+      method: 'DELETE'
+    });
+
+    if (response.ok) {
+      showToast('🗑️ Riwayat berhasil dihapus!');
+      addLog(`🗑️ Deleted session: ${sessionId}`);
+      await loadHistory();
+    } else {
+      throw new Error('Delete failed: ' + response.status);
+    }
+  } catch (err) {
+    showToast('❌ Gagal menghapus: ' + err.message, 3000);
+    addLog('❌ Delete error: ' + err.message);
+  }
 }
 
 // ============================================
@@ -1060,27 +1076,6 @@ setInterval(()=> {
     }
   }
 }, 5000);
-
-async function deleteHistorySession(sessionId) {
-  if (!confirm('Yakin hapus riwayat ini dari cloud?')) return;
-  
-  try {
-    const response = await fetch(AWS_HISTORY.baseUrl + '/delete-session/' + encodeURIComponent(sessionId), {
-      method: 'DELETE'
-    });
-
-    if (response.ok) {
-      showToast('🗑️ Riwayat berhasil dihapus!');
-      addLog(`🗑️ Deleted session: ${sessionId}`);
-      await loadHistory();
-    } else {
-      throw new Error('Delete failed: ' + response.status);
-    }
-  } catch (err) {
-    showToast('❌ Gagal menghapus: ' + err.message, 3000);
-    addLog('❌ Delete error: ' + err.message);
-  }
-}
 </script>
 </body>
 </html>
