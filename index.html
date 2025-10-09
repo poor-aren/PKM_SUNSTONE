@@ -621,12 +621,20 @@ document.getElementById('patientForm').addEventListener('submit', async function
   document.getElementById('addPatientSection').style.display = 'none';
   document.getElementById('currentPatientSection').style.display = 'block';
   document.getElementById('sensorPanel').style.display = 'block';
+  document.getElementById('mg811').textContent = '-';
+  document.getElementById('mq7').textContent = '-';
+  document.getElementById('mq3').textContent = '-';
+  document.getElementById('mq135').textContent = '-';
+  document.getElementById('lastUpdate').textContent = 'Menunggu data dari ESP32...';
+  document.getElementById('lastUpdate').style.color = '#666';
+  document.getElementById('resultSection').style.display = 'none';
   addLog(`✅ Sesi dimulai: ${name}`);
   showToast('✅ Sesi berhasil dibuat!');
   addLog('📢 Broadcasting session_ready to ESP32...');
   sendMQTTCommand({ action:'session_ready', session_id:sessionId, patient_name:name });
   document.getElementById('patientForm').reset();
 });
+
 
 async function finishSession() {
   if (!currentSessionId) return;
