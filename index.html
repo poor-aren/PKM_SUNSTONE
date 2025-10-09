@@ -917,23 +917,24 @@ async function loadHistory() {
 
     tbody.innerHTML = sessions.map(session => {
       const date = new Date(session.timestamp).toLocaleString('id-ID');
-      const resultCategory = session.result?.category || session.lastResultCategory || '-';
-      const resultConfidence = session.result?.confidence || session.lastResultConfidence;
+      const resultCategory = session.lastResultCategory || '-';
+      const resultConfidence = session.lastResultConfidence;
       const conf = resultConfidence != null ? (Number(resultConfidence) * 100).toFixed(1) + '%' : '-';
       
-      const cigPerDay = session.brinkmanCigPerDay || session.patientData?.brinkmanCigPerDay || '-';
-      const yearsSmoke = session.brinkmanYearsSmoke || session.patientData?.brinkmanYearsSmoke || '-';
+      const cigPerDay = session.brinkmanCigPerDay || '-';
+      const yearsSmoke = session.brinkmanYearsSmoke || '-';
       const brinkmanDisplay = `${cigPerDay} btg/hari | ${yearsSmoke} thn`;
       
       const readings = session.sensorReadings || [];
-      const hasReadings = readings.length > 1;
+      const readingsCount = session.readingsCount || readings.length;
+      const hasReadings = readingsCount > 0;
       
       let mainRow = `
         <tr>
           <td>${date}</td>
-          <td>${session.patientName || session.name || '-'}</td>
-          <td>${session.patientAge || session.age || '-'}</td>
-          <td>${session.patientData?.phone || session.phone || '-'}</td>
+          <td>${session.patientName || '-'}</td>
+          <td>${session.patientAge || '-'}</td>
+          <td>${session.phone || '-'}</td>
           <td>${brinkmanDisplay}</td>
           <td><strong>${resultCategory}</strong></td>
           <td>${conf}</td>
@@ -943,7 +944,7 @@ async function loadHistory() {
             </span>
           </td>
           <td>
-            ${hasReadings ? `<button class="expand-btn" onclick="toggleReadings('${session.sessionId}')">📊 ${readings.length} data</button>` : ''}
+            ${hasReadings ? `<button class="expand-btn" onclick="toggleReadings('${session.sessionId}')">📊 ${readingsCount} data</button>` : '<em style="color:#999">No data</em>'}
             <button class="btn btn-danger btn-sm" onclick="deleteHistorySession('${session.sessionId}')">🗑️</button>
           </td>
         </tr>`;
@@ -953,25 +954,27 @@ async function loadHistory() {
         <tr id="readings-${session.sessionId}" class="expandable-row">
           <td colspan="9">
             <div class="expandable-content">
-              <strong>📊 Data Sensor (${readings.length} pembacaan)</strong>
+              <strong>📊 Data Sensor (${readingsCount} pembacaan)</strong>
               <table class="sensor-readings-table">
                 <thead>
                   <tr>
+                    <th>No</th>
                     <th>Waktu</th>
-                    <th>MG-811</th>
-                    <th>MQ-7</th>
-                    <th>MQ-3</th>
-                    <th>MQ-135</th>
+                    <th>MG-811 (CO₂)</th>
+                    <th>MQ-7 (CO)</th>
+                    <th>MQ-3 (Etanol)</th>
+                    <th>MQ-135 (VOC)</th>
                   </tr>
                 </thead>
                 <tbody>
-                  ${readings.map(r => `
+                  ${readings.map((r, idx) => `
                     <tr>
+                      <td>${idx + 1}</td>
                       <td>${new Date(r.readingTimestamp || r.timestamp).toLocaleTimeString('id-ID')}</td>
-                      <td>${r.mg811 || 0}</td>
-                      <td>${r.mq7 || 0}</td>
-                      <td>${r.mq3 || 0}</td>
-                      <td>${r.mq135 || 0}</td>
+                      <td>${Math.round(r.mg811 || 0)}</td>
+                      <td>${Math.round(r.mq7 || 0)}</td>
+                      <td>${Math.round(r.mq3 || 0)}</td>
+                      <td>${Math.round(r.mq135 || 0)}</td>
                     </tr>
                   `).join('')}
                 </tbody>
