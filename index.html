@@ -332,6 +332,35 @@ const CONFIG = {
 };
 
 // ============================================
+// CONVERSION FUNCTIONS
+// ============================================
+function rawToPercent(rawValue, sensorType) {
+  const val = Number(rawValue) || 0;
+  if (sensorType === 'mg811') {
+    // MG-811: Kebalikan (4095 = 0%, 0 = 100%)
+    const percent = ((4095 - val) / 4095) * 100;
+    return Math.round(Math.max(0, Math.min(100, percent)));
+  } else {
+    // MQ-3, MQ-7, MQ-135: Normal (0 = 0%, 4095 = 100%)
+    const percent = (val / 4095) * 100;
+    return Math.round(Math.max(0, Math.min(100, percent)));
+  }
+}
+
+function percentToRaw(percentValue, sensorType) {
+  const pct = Number(percentValue) || 0;
+  if (sensorType === 'mg811') {
+    // MG-811: Kebalikan
+    const raw = 4095 - ((pct / 100) * 4095);
+    return Math.round(Math.max(0, Math.min(4095, raw)));
+  } else {
+    // MQ-3, MQ-7, MQ-135: Normal
+    const raw = (pct / 100) * 4095;
+    return Math.round(Math.max(0, Math.min(4095, raw)));
+  }
+}
+
+// ============================================
 // GLOBAL STATE
 // ============================================
 let db = null;
@@ -698,10 +727,10 @@ async function finishSession() {
       
       const sensorReadings = sensors.map(s => ({
         timestamp: s.timestamp,
-        mg811: s.mg811 || 0,
-        mq7: s.mq7 || 0,
-        mq3: s.mq3 || 0,
-        mq135: s.mq135 || 0
+        mg811: rawToPercent(s.mg811 || 0, 'mg811'),
+        mq7: rawToPercent(s.mq7 || 0, 'mq7'),
+        mq3: rawToPercent(s.mq3 || 0, 'mq3'),
+        mq135: rawToPercent(s.mq135 || 0, 'mq135')
       }));
 
       const payload = {
@@ -801,10 +830,10 @@ async function processSensorData(sensorData) {
   };
   await saveSensorData(sensorRecord);
 
-  document.getElementById('mg811').textContent = sensorData.mg811;
-  document.getElementById('mq7').textContent = sensorData.mq7;
-  document.getElementById('mq3').textContent = sensorData.mq3;
-  document.getElementById('mq135').textContent = sensorData.mq135;
+  document.getElementById('mg811').textContent = rawToPercent(sensorData.mg811, 'mg811') + '%';
+  document.getElementById('mq7').textContent = rawToPercent(sensorData.mq7, 'mq7') + '%';
+  document.getElementById('mq3').textContent = rawToPercent(sensorData.mq3, 'mq3') + '%';
+  document.getElementById('mq135').textContent = rawToPercent(sensorData.mq135, 'mq135') + '%';
 
   document.getElementById('lastUpdate').textContent = '⏱️ Update: baru saja';
   document.getElementById('lastUpdate').style.color = '#28a745';
@@ -1005,10 +1034,10 @@ async function loadHistory() {
                     <tr>
                       <td>${idx + 1}</td>
                       <td>${new Date(r.readingTimestamp || r.timestamp).toLocaleTimeString('id-ID')}</td>
-                      <td>${Math.round(r.mg811 || 0)}</td>
-                      <td>${Math.round(r.mq7 || 0)}</td>
-                      <td>${Math.round(r.mq3 || 0)}</td>
-                      <td>${Math.round(r.mq135 || 0)}</td>
+                      <td>${Math.round(r.mg811 || 0)}%</td>
+                      <td>${Math.round(r.mq7 || 0)}%</td>
+                      <td>${Math.round(r.mq3 || 0)}%</td>
+                      <td>${Math.round(r.mq135 || 0)}%</td>
                     </tr>
                   `).join('')}
                 </tbody>
